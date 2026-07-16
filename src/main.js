@@ -1,0 +1,227 @@
+import { renderLanding, attachLandingEvents } from './landing.js';
+import { renderAuth, attachAuthEvents, saveUserToDb } from './auth.js';
+import { loadContacts, addContact, removeContact, renderContactsView, attachContactsEvents } from './contacts.js';
+import { loadChatList, subscribeToMessages, sendMessage, renderChatView, attachChatEvents } from './chat.js';
+import { renderGamesView, attachGamesEvents } from './games.js';
+import { auth, signOut, onAuthStateChanged } from './firebase.js';
+
+let currentUser = null;
+let activeView = 'contacts';
+let contacts = [];
+let chatList = [];
+let activeChat = null;
+let chatMessages = [];
+let chatUnsub = null;
+
+const app = document.getElementById('app');
+
+function showLanding() {
+  app.innerHTML = renderLanding();
+  attachLandingEvents(showAuth);
+}
+
+function showAuth() {
+  app.innerHTML = renderAuth();
+  attachAuthEvents(enterApp);
+}
+
+function enterApp(user) {
+  currentUser = user;
+  renderShell();
+  switchView('contacts');
+}
+
+function renderShell() {
+  const initial = (currentUser.name || currentUser.email)[0]?.toUpperCase() || '?';
+  app.innerHTML = `
+  <div class="app-shell">
+    <div class="app-sidebar">
+      <div class="app-sidebar-header">
+        <div class="app-sidebar-logo">Talk</div>
+      </div>
+      <nav class="app-nav">
+        <button class="app-nav-item ${activeView === 'contacts' ? 'active' : ''}" data-view="contacts">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          <span>Contacts</span>
+        </button>
+        <button class="app-nav-item ${activeView === 'chat' ? 'active' : ''}" data-view="chat">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          <span>Chat</span>
+        </button>
+        <button class="app-nav-item ${activeView === 'games' ? 'active' : ''}" data-view="games">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 12h4M8 10v4M15 11h.01M18 13h.01"/></svg>
+          <span>Games</span>
+        </button>
+      </nav>
+      <div class="app-sidebar-footer">
+        <div class="app-user-avatar">${initial}</div>
+        <div class="app-user-info">
+          <div class="app-user-name">${currentUser.name || currentUser.email}</div>
+          <div class="app-user-email">${currentUser.email}</div>
+        </div>
+        <button class="app-logout-btn" id="logout-btn" title="Sign out">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        </button>
+      </div>
+    </div>
+    <div class="app-main">
+      <div class="app-main-header">
+        <h2 id="main-title">Contacts</h2>
+      </div>
+      <div class="app-main-content" id="main-content"></div>
+    </div>
+  </div>`;
+
+  document.querySelectorAll('.app-nav-item').forEach(item => {
+    item.addEventListener('click', () => switchView(item.dataset.view));
+  });
+  document.getElementById('logout-btn').addEventListener('click', async () => {
+    if (chatUnsub) { chatUnsub(); chatUnsub = null; }
+    await signOut(auth);
+    currentUser = null;
+    location.reload();
+  });
+}
+
+async function switchView(view) {
+  activeView = view;
+  document.querySelectorAll('.app-nav-item').forEach(item => {
+    item.classList.toggle('active', item.dataset.view === view);
+  });
+  const title = document.getElementById('main-title');
+  const content = document.getElementById('main-content');
+
+  if (view === 'contacts') {
+    title.textContent = 'Contacts';
+    content.innerHTML = `
+    <div class="contacts-toolbar">
+      <input type="text" class="contacts-search" id="contacts-search" placeholder="Search contacts..." />
+      <button class="contacts-add-btn" id="add-contact-btn">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        Add Contact
+      </button>
+    </div>
+    <div id="contacts-list"></div>`;
+    await refreshContacts();
+    document.getElementById('contacts-search').addEventListener('input', (e) => {
+      filterContacts(e.target.value);
+    });
+    document.getElementById('add-contact-btn').addEventListener('click', showAddContactModal);
+  } else if (view === 'chat') {
+    title.textContent = 'Chat';
+    chatList = await loadChatList(currentUser, contacts);
+    renderChat();
+  } else if (view === 'games') {
+    title.textContent = 'Games';
+    content.innerHTML = renderGamesView();
+    attachGamesEvents();
+  }
+}
+
+async function refreshContacts() {
+  contacts = await loadContacts(currentUser);
+  renderContactsList();
+}
+
+function renderContactsList(filter = '') {
+  const list = document.getElementById('contacts-list');
+  if (!list) return;
+  const filtered = filter
+    ? contacts.filter(c => (c.name || c.email).toLowerCase().includes(filter.toLowerCase()) || c.email.toLowerCase().includes(filter.toLowerCase()))
+    : contacts;
+  list.innerHTML = renderContactsView(filtered, startChatFromContact, handleRemoveContact);
+  attachContactsEvents(startChatFromContact, handleRemoveContact);
+}
+
+function filterContacts(q) {
+  renderContactsList(q);
+}
+
+function showAddContactModal() {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `
+  <div class="modal-card">
+    <h3>Add a contact</h3>
+    <div class="auth-field">
+      <label>Email</label>
+      <input type="email" id="new-contact-email" placeholder="contact@example.com" />
+    </div>
+    <div class="auth-field">
+      <label>Name (optional)</label>
+      <input type="text" id="new-contact-name" placeholder="Their name" />
+    </div>
+    <div class="modal-actions">
+      <button class="modal-btn-cancel" id="add-cancel">Cancel</button>
+      <button class="modal-btn-confirm" id="add-confirm">Add</button>
+    </div>
+  </div>`;
+  document.body.appendChild(overlay);
+
+  document.getElementById('add-cancel').addEventListener('click', () => overlay.remove());
+  document.getElementById('add-confirm').addEventListener('click', async () => {
+    const email = document.getElementById('new-contact-email').value.trim();
+    const name = document.getElementById('new-contact-name').value.trim();
+    if (!email) return;
+    try {
+      await addContact(currentUser, email, name);
+      overlay.remove();
+      await refreshContacts();
+    } catch (err) {
+      alert('Failed to add contact: ' + err.message);
+    }
+  });
+}
+
+async function handleRemoveContact(email) {
+  await removeContact(currentUser, email);
+  contacts = contacts.filter(c => c.email !== email);
+  renderContactsList();
+  if (activeChat?.email === email) {
+    activeChat = null;
+    chatMessages = [];
+  }
+}
+
+function startChatFromContact(email, name) {
+  activeChat = { email, name };
+  switchView('chat');
+}
+
+function renderChat() {
+  const content = document.getElementById('main-content');
+  content.innerHTML = renderChatView(chatList, activeChat?.email, chatMessages, currentUser);
+  attachChatEvents(handleSelectChat, handleSendMessage);
+  scrollChatToBottom();
+}
+
+function handleSelectChat(email, name) {
+  if (chatUnsub) { chatUnsub(); chatUnsub = null; }
+  activeChat = { email, name };
+  chatMessages = [];
+  chatUnsub = subscribeToMessages(currentUser, email, (msgs) => {
+    chatMessages = msgs;
+    renderChat();
+  });
+  renderChat();
+}
+
+async function handleSendMessage(text) {
+  if (!activeChat) return;
+  await sendMessage(currentUser, activeChat.email, text);
+}
+
+function scrollChatToBottom() {
+  const msgs = document.getElementById('chat-messages');
+  if (msgs) msgs.scrollTop = msgs.scrollHeight;
+}
+
+// Boot: check if user is already signed in
+onAuthStateChanged(auth, async (user) => {
+  if (user) {
+    const userData = await saveUserToDb(user);
+    enterApp(userData);
+  } else {
+    showLanding();
+  }
+});
