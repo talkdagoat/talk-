@@ -14,12 +14,12 @@ export async function loadChatList(user, contacts) {
   return contacts.map(c => ({
     email: c.email,
     name: c.name || c.email,
-    chatId: chatId(user.uid, c.email)
+    chatId: chatId(user.email, c.email)
   }));
 }
 
 export function subscribeToMessages(user, contactEmail, callback) {
-  const cid = chatId(user.uid, contactEmail);
+  const cid = chatId(user.email, contactEmail);
   const messagesRef = ref(rtdb, `chats/${cid}/messages`);
   const q = rtdbQuery(messagesRef, orderByChild('createdAt'), limitToLast(MESSAGE_LIMIT));
 
@@ -35,7 +35,7 @@ export function subscribeToMessages(user, contactEmail, callback) {
 }
 
 export async function sendMessage(user, contactEmail, text) {
-  const cid = chatId(user.uid, contactEmail);
+  const cid = chatId(user.email, contactEmail);
   const messagesRef = ref(rtdb, `chats/${cid}/messages`);
   const newMsgRef = push(messagesRef);
   await set(newMsgRef, {

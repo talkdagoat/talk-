@@ -950,10 +950,19 @@ app.get('/api/admin/download', (req, res) => {
 });
 
 // ---------- Static files ----------
-app.use(express.static(__dirname, {
+// Serve Vite-built frontend from dist/ if it exists, otherwise raw files (dev mode)
+const distDir = path.join(__dirname, 'dist');
+let serveDir = __dirname;
+try { require('fs').accessSync(distDir); serveDir = distDir; } catch {}
+app.use(express.static(serveDir, {
     setHeaders: (res) => res.setHeader('Cache-Control', 'no-store'),
     extensions: ['html'],
 }));
+// SPA fallback: serve index.html for any non-API route
+app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api/') || req.path.startsWith('/uploads/') || req.path.startsWith('/ws')) return next();
+    res.sendFile(path.join(serveDir, 'index.html'));
+});
 
 // ---------- WebSocket + HTTP server ----------
 const server = http.createServer(app);
