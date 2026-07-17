@@ -274,6 +274,15 @@ a { color: var(--primary); text-decoration: none; }
   display: flex; align-items: center; gap: 8px; transition: background 0.2s;
 }
 .contacts-add-btn:hover { background: var(--primary-dark); }
+.contacts-tabs { display: flex; gap: 4px; }
+.contacts-tab {
+  padding: 8px 16px; border: 1.5px solid var(--border); background: #fff;
+  border-radius: var(--radius-sm); font-size: 14px; font-weight: 500;
+  color: var(--neutral-500); cursor: pointer; transition: all 0.2s;
+}
+.contacts-tab.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+.contact-action-btn.add { color: var(--success); }
+.contact-action-btn.add:hover { background: var(--success-light, #e8f5e9); }
 .contacts-grid {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 16px;
 }

@@ -1,4 +1,4 @@
-import { db, collection, doc, setDoc, getDocs, deleteDoc } from './firebase.js';
+import { db, collection, doc, setDoc, getDocs, deleteDoc, getDoc } from './firebase.js';
 
 export async function loadContacts(user) {
   const contactsRef = collection(db, 'users', user.uid, 'contacts');
@@ -7,18 +7,57 @@ export async function loadContacts(user) {
 }
 
 export async function addContact(user, contactEmail, contactName) {
-  const contactRef = doc(db, 'users', user.uid, 'contacts', contactEmail);
+  const lowerEmail = contactEmail.toLowerCase();
+  const userRef = doc(db, 'users', user.uid);
+  const userSnap = await getDoc(userRef);
+  const currentUserEmail = userSnap.exists() ? (userSnap.data().email || '').toLowerCase() : '';
+
+  if (lowerEmail === currentUserEmail) {
+    throw new Error("You can't add yourself as a contact");
+  }
+
+  const usersRef = collection(db, 'users');
+  const q = await getDocs(usersRef);
+  const found = q.docs.find(d => {
+    const data = d.data();
+    return (data.email || '').toLowerCase() === lowerEmail;
+  });
+
+  if (!found) {
+    throw new Error('No Talk user found with that email. They need to sign up first.');
+  }
+
+  const contactData = found.data();
+  const contactRef = doc(db, 'users', user.uid, 'contacts', lowerEmail);
   await setDoc(contactRef, {
-    email: contactEmail,
-    name: contactName || contactEmail.split('@')[0],
-    avatar: null,
+    email: lowerEmail,
+    name: contactName || contactData.name || lowerEmail.split('@')[0],
+    avatar: contactData.photoURL || null,
     addedAt: new Date().toISOString()
   }, { merge: true });
 }
 
 export async function removeContact(user, contactEmail) {
-  const contactRef = doc(db, 'users', user.uid, 'contacts', contactEmail);
+  const contactRef = doc(db, 'users', user.uid, 'contacts', contactEmail.toLowerCase());
   await deleteDoc(contactRef);
+}
+
+export async function loadTalkUsers(user) {
+  const usersRef = collection(db, 'users');
+  const snap = await getDocs(usersRef);
+  const users = [];
+  snap.forEach(d => {
+    const data = d.data();
+    const email = (data.email || '').toLowerCase();
+    if (email && email !== (user.email || '').toLowerCase()) {
+      users.push({
+        email,
+        name: data.name || email.split('@')[0],
+        avatar: data.photoURL || null
+      });
+    }
+  });
+  return users.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
 }
 
 export function renderContactsView(contacts, onMessage, onRemove) {
@@ -26,7 +65,7 @@ export function renderContactsView(contacts, onMessage, onRemove) {
     return `
     <div class="contacts-empty">
       <h3>No contacts yet</h3>
-      <p>Add people by email to start chatting.</p>
+      <p>Add people from the Talk user directory to start chatting.</p>
     </div>`;
   }
 
@@ -54,6 +93,39 @@ export function renderContactsView(contacts, onMessage, onRemove) {
   </div>`;
 }
 
+export function renderTalkUsersDirectory(users, existingEmails) {
+  if (users.length === 0) {
+    return `
+    <div class="contacts-empty">
+      <h3>No other Talk users yet</h3>
+      <p>When others sign up for Talk, they'll appear here.</p>
+    </div>`;
+  }
+
+  return `
+  <div class="contacts-grid">
+    ${users.map(u => {
+      const initial = (u.name || u.email)[0].toUpperCase();
+      const isContact = existingEmails.includes(u.email);
+      return `
+      <div class="contact-card">
+        <div class="contact-avatar">${initial}</div>
+        <div class="contact-info">
+          <div class="contact-name">${u.name || u.email}</div>
+          <div class="contact-email">${u.email}</div>
+        </div>
+        <div class="contact-actions">
+          ${isContact
+            ? '<span style="font-size:13px;color:var(--neutral-400);padding:8px 12px;">Already added</span>'
+            : `<button class="contact-action-btn add" data-email="${u.email}" data-name="${u.name || u.email}" title="Add contact">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            </button>`}
+        </div>
+      </div>`;
+    }).join('')}
+  </div>`;
+}
+
 export function attachContactsEvents(onMessage, onRemove) {
   document.querySelectorAll('.contact-action-btn.message').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -63,6 +135,14 @@ export function attachContactsEvents(onMessage, onRemove) {
   document.querySelectorAll('.contact-action-btn.remove').forEach(btn => {
     btn.addEventListener('click', () => {
       onRemove(btn.dataset.email);
+    });
+  });
+}
+
+export function attachDirectoryEvents(onAdd) {
+  document.querySelectorAll('.contact-action-btn.add').forEach(btn => {
+    btn.addEventListener('click', () => {
+      onAdd(btn.dataset.email, btn.dataset.name);
     });
   });
 }

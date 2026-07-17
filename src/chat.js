@@ -1,21 +1,38 @@
 import {
   rtdb, ref, push, set, get, rtdbQuery,
-  orderByChild, limitToLast, onValue, remove, rtdbServerTimestamp
+  orderByChild, limitToLast, onValue, remove, update, rtdbServerTimestamp
 } from './firebase.js';
 
 const MESSAGE_LIMIT = 50;
 const SIX_MONTHS_MS = 180 * 24 * 60 * 60 * 1000;
 
-function chatId(uid1, uid2) {
-  return [uid1, uid2].sort().join('_');
+function emailKey(email) {
+  return (email || '').toLowerCase().replace(/\./g, ',');
+}
+
+function chatId(email1, email2) {
+  return [emailKey(email1), emailKey(email2)].sort().join('__');
 }
 
 export async function loadChatList(user, contacts) {
-  return contacts.map(c => ({
-    email: c.email,
-    name: c.name || c.email,
-    chatId: chatId(user.email, c.email)
-  }));
+  const inboxRef = ref(rtdb, `userChats/${emailKey(user.email)}`);
+  const snap = await get(inboxRef);
+  if (!snap.exists()) return [];
+  const chats = [];
+  snap.forEach((child) => {
+    const val = child.val();
+    if (val && val.email) {
+      chats.push({
+        email: val.email,
+        name: val.name || val.email,
+        chatId: child.key,
+        lastMessage: val.lastMessage || '',
+        lastAt: val.lastAt || 0
+      });
+    }
+  });
+  chats.sort((a, b) => (b.lastAt || 0) - (a.lastAt || 0));
+  return chats;
 }
 
 export function subscribeToMessages(user, contactEmail, callback) {
@@ -38,13 +55,33 @@ export async function sendMessage(user, contactEmail, text) {
   const cid = chatId(user.email, contactEmail);
   const messagesRef = ref(rtdb, `chats/${cid}/messages`);
   const newMsgRef = push(messagesRef);
+  const now = Date.now();
   await set(newMsgRef, {
     text,
     sender: user.uid,
     senderEmail: user.email,
-    createdAt: Date.now(),
+    createdAt: now,
     id: newMsgRef.key
   });
+
+  const inboxEntry = {
+    email: contactEmail,
+    name: (user.name || user.email),
+    lastMessage: text,
+    lastAt: now
+  };
+  const reverseEntry = {
+    email: user.email,
+    name: user.name || user.email,
+    lastMessage: text,
+    lastAt: now
+  };
+
+  try {
+    await update(ref(rtdb, `userChats/${emailKey(user.email)}`), { [cid]: inboxEntry });
+    await update(ref(rtdb, `userChats/${emailKey(contactEmail)}`), { [cid]: reverseEntry });
+  } catch {}
+
   enforceMessageLimit(cid);
 }
 
@@ -90,14 +127,16 @@ export function renderChatView(chatList, activeEmail, messages, user) {
       <input type="text" class="contacts-search" id="chat-search" placeholder="Search..." style="margin-top:8px;" />
     </div>
     <div class="chat-list" id="chat-list">
-      ${chatList.length === 0 ? '<div style="padding:24px;text-align:center;color:var(--neutral-400);font-size:14px;">No contacts yet</div>' : ''}
+      ${chatList.length === 0 ? '<div style="padding:24px;text-align:center;color:var(--neutral-400);font-size:14px;">No conversations yet</div>' : ''}
       ${chatList.map(c => {
         const initial = (c.name || c.email)[0].toUpperCase();
+        const preview = c.lastMessage ? escapeHtml(c.lastMessage).slice(0, 40) : '';
         return `
         <div class="chat-list-item ${activeEmail === c.email ? 'active' : ''}" data-email="${c.email}" data-name="${c.name || c.email}">
           <div class="chat-list-avatar">${initial}</div>
           <div class="chat-list-info">
             <div class="chat-list-name">${c.name || c.email}</div>
+            ${preview ? `<div class="chat-list-preview">${preview}</div>` : ''}
           </div>
         </div>`;
       }).join('')}
@@ -112,7 +151,7 @@ export function renderChatView(chatList, activeEmail, messages, user) {
     </div>
     <div class="chat-messages" id="chat-messages">
       ${messages.map(m => {
-        const sent = m.sender === user.uid;
+        const sent = m.senderEmail === user.email || m.sender === user.uid;
         return `
         <div class="chat-bubble ${sent ? 'sent' : 'received'}">
           ${escapeHtml(m.text)}
@@ -129,7 +168,7 @@ export function renderChatView(chatList, activeEmail, messages, user) {
   </div>` : `
   <div class="chat-empty">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-    <p>Select a contact to start chatting</p>
+    <p>Select a conversation to start chatting</p>
   </div>`;
 
   return `<div class="chat-layout">${sidebarHtml}${mainHtml}</div>`;
@@ -182,4 +221,4 @@ export function attachChatEvents(onSelectChat, onSendMessage) {
   }
 }
 
-export { chatId };
+export { chatId, emailKey };

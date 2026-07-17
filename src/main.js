@@ -1,7 +1,8 @@
 import { renderLanding, attachLandingEvents } from './landing.js';
 import { renderAuth, attachAuthEvents, saveUserToDb } from './auth.js';
-import { loadContacts, addContact, removeContact, renderContactsView, attachContactsEvents } from './contacts.js';
-import { loadChatList, subscribeToMessages, sendMessage, renderChatView, attachChatEvents } from './chat.js';
+import { loadContacts, addContact, removeContact, renderContactsView, attachContactsEvents, loadTalkUsers, renderTalkUsersDirectory, attachDirectoryEvents } from './contacts.js';
+import { loadChatList, subscribeToMessages, sendMessage, renderChatView, attachChatEvents, emailKey } from './chat.js';
+import { rtdb, ref, onValue } from './firebase.js';
 import { renderGamesView, attachGamesEvents } from './games.js';
 import { auth, signOut, onAuthStateChanged } from './firebase.js';
 
@@ -12,6 +13,7 @@ let chatList = [];
 let activeChat = null;
 let chatMessages = [];
 let chatUnsub = null;
+let inboxUnsub = null;
 
 const app = document.getElementById('app');
 
@@ -77,6 +79,7 @@ function renderShell() {
   });
   document.getElementById('logout-btn').addEventListener('click', async () => {
     if (chatUnsub) { chatUnsub(); chatUnsub = null; }
+    if (inboxUnsub) { inboxUnsub(); inboxUnsub = null; }
     await signOut(auth);
     currentUser = null;
     location.reload();
@@ -95,22 +98,25 @@ async function switchView(view) {
     title.textContent = 'Contacts';
     content.innerHTML = `
     <div class="contacts-toolbar">
-      <input type="text" class="contacts-search" id="contacts-search" placeholder="Search contacts..." />
-      <button class="contacts-add-btn" id="add-contact-btn">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-        Add Contact
-      </button>
+      <div class="contacts-tabs">
+        <button class="contacts-tab active" data-tab="my">My Contacts</button>
+        <button class="contacts-tab" data-tab="dir">Talk Users</button>
+      </div>
+      <input type="text" class="contacts-search" id="contacts-search" placeholder="Search..." />
     </div>
     <div id="contacts-list"></div>`;
     await refreshContacts();
     document.getElementById('contacts-search').addEventListener('input', (e) => {
       filterContacts(e.target.value);
     });
-    document.getElementById('add-contact-btn').addEventListener('click', showAddContactModal);
+    document.querySelectorAll('.contacts-tab').forEach(tab => {
+      tab.addEventListener('click', () => switchContactsTab(tab.dataset.tab));
+    });
   } else if (view === 'chat') {
     title.textContent = 'Chat';
     chatList = await loadChatList(currentUser, contacts);
     renderChat();
+    subscribeToInbox();
   } else if (view === 'games') {
     title.textContent = 'Games';
     content.innerHTML = renderGamesView();
@@ -120,63 +126,62 @@ async function switchView(view) {
 
 async function refreshContacts() {
   contacts = await loadContacts(currentUser);
+  await refreshTalkUsers();
   renderContactsList();
+}
+
+let contactsTab = 'my';
+let talkUsers = [];
+
+function switchContactsTab(tab) {
+  contactsTab = tab;
+  document.querySelectorAll('.contacts-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
+  renderContactsList(document.getElementById('contacts-search')?.value || '');
+}
+
+async function refreshTalkUsers() {
+  talkUsers = await loadTalkUsers(currentUser);
 }
 
 function renderContactsList(filter = '') {
   const list = document.getElementById('contacts-list');
   if (!list) return;
-  const filtered = filter
-    ? contacts.filter(c => (c.name || c.email).toLowerCase().includes(filter.toLowerCase()) || c.email.toLowerCase().includes(filter.toLowerCase()))
-    : contacts;
-  list.innerHTML = renderContactsView(filtered, startChatFromContact, handleRemoveContact);
-  attachContactsEvents(startChatFromContact, handleRemoveContact);
+  const q = filter.toLowerCase();
+
+  if (contactsTab === 'dir') {
+    const filtered = q
+      ? talkUsers.filter(u => (u.name || '').toLowerCase().includes(q) || u.email.toLowerCase().includes(q))
+      : talkUsers;
+    const existingEmails = contacts.map(c => c.email);
+    list.innerHTML = renderTalkUsersDirectory(filtered, existingEmails);
+    attachDirectoryEvents(handleAddFromDirectory);
+  } else {
+    const filtered = q
+      ? contacts.filter(c => (c.name || c.email).toLowerCase().includes(q) || c.email.toLowerCase().includes(q))
+      : contacts;
+    list.innerHTML = renderContactsView(filtered, startChatFromContact, handleRemoveContact);
+    attachContactsEvents(startChatFromContact, handleRemoveContact);
+  }
 }
 
 function filterContacts(q) {
   renderContactsList(q);
 }
 
-function showAddContactModal() {
-  const overlay = document.createElement('div');
-  overlay.className = 'modal-overlay';
-  overlay.innerHTML = `
-  <div class="modal-card">
-    <h3>Add a contact</h3>
-    <div class="auth-field">
-      <label>Email</label>
-      <input type="email" id="new-contact-email" placeholder="contact@example.com" />
-    </div>
-    <div class="auth-field">
-      <label>Name (optional)</label>
-      <input type="text" id="new-contact-name" placeholder="Their name" />
-    </div>
-    <div class="modal-actions">
-      <button class="modal-btn-cancel" id="add-cancel">Cancel</button>
-      <button class="modal-btn-confirm" id="add-confirm">Add</button>
-    </div>
-  </div>`;
-  document.body.appendChild(overlay);
-
-  document.getElementById('add-cancel').addEventListener('click', () => overlay.remove());
-  document.getElementById('add-confirm').addEventListener('click', async () => {
-    const email = document.getElementById('new-contact-email').value.trim();
-    const name = document.getElementById('new-contact-name').value.trim();
-    if (!email) return;
-    try {
-      await addContact(currentUser, email, name);
-      overlay.remove();
-      await refreshContacts();
-    } catch (err) {
-      alert('Failed to add contact: ' + err.message);
-    }
-  });
+async function handleAddFromDirectory(email, name) {
+  try {
+    await addContact(currentUser, email, name);
+    await refreshContacts();
+    renderContactsList(document.getElementById('contacts-search')?.value || '');
+  } catch (err) {
+    alert('Failed to add contact: ' + err.message);
+  }
 }
 
 async function handleRemoveContact(email) {
   await removeContact(currentUser, email);
   contacts = contacts.filter(c => c.email !== email);
-  renderContactsList();
+  renderContactsList(document.getElementById('contacts-search')?.value || '');
   if (activeChat?.email === email) {
     activeChat = null;
     chatMessages = [];
@@ -193,6 +198,29 @@ function renderChat() {
   content.innerHTML = renderChatView(chatList, activeChat?.email, chatMessages, currentUser);
   attachChatEvents(handleSelectChat, handleSendMessage);
   scrollChatToBottom();
+}
+
+function subscribeToInbox() {
+  if (inboxUnsub) { inboxUnsub(); inboxUnsub = null; }
+  const inboxRef = ref(rtdb, `userChats/${emailKey(currentUser.email)}`);
+  inboxUnsub = onValue(inboxRef, (snap) => {
+    const chats = [];
+    snap.forEach((child) => {
+      const val = child.val();
+      if (val && val.email) {
+        chats.push({
+          email: val.email,
+          name: val.name || val.email,
+          chatId: child.key,
+          lastMessage: val.lastMessage || '',
+          lastAt: val.lastAt || 0
+        });
+      }
+    });
+    chats.sort((a, b) => (b.lastAt || 0) - (a.lastAt || 0));
+    chatList = chats;
+    renderChat();
+  });
 }
 
 function handleSelectChat(email, name) {
