@@ -1,4 +1,4 @@
-import { db, collection, doc, setDoc, getDocs, deleteDoc, getDoc } from './firebase.js';
+import { db, rtdb, collection, doc, setDoc, getDocs, deleteDoc, getDoc, ref, get as rtdbGet } from './firebase.js';
 
 export async function loadContacts(user) {
   const contactsRef = collection(db, 'users', user.uid, 'contacts');
@@ -8,31 +8,31 @@ export async function loadContacts(user) {
 
 export async function addContact(user, contactEmail, contactName) {
   const lowerEmail = contactEmail.toLowerCase();
-  const userRef = doc(db, 'users', user.uid);
-  const userSnap = await getDoc(userRef);
-  const currentUserEmail = userSnap.exists() ? (userSnap.data().email || '').toLowerCase() : '';
-
-  if (lowerEmail === currentUserEmail) {
+  if (lowerEmail === (user.email || '').toLowerCase()) {
     throw new Error("You can't add yourself as a contact");
   }
 
-  const usersRef = collection(db, 'users');
-  const q = await getDocs(usersRef);
-  const found = q.docs.find(d => {
-    const data = d.data();
-    return (data.email || '').toLowerCase() === lowerEmail;
-  });
+  const usersRef = ref(rtdb, 'users');
+  const snap = await rtdbGet(usersRef);
+  let found = null;
+  if (snap.exists()) {
+    snap.forEach((child) => {
+      const data = child.val();
+      if ((data.email || '').toLowerCase() === lowerEmail) {
+        found = data;
+      }
+    });
+  }
 
   if (!found) {
     throw new Error('No Talk user found with that email. They need to sign up first.');
   }
 
-  const contactData = found.data();
   const contactRef = doc(db, 'users', user.uid, 'contacts', lowerEmail);
   await setDoc(contactRef, {
     email: lowerEmail,
-    name: contactName || contactData.name || lowerEmail.split('@')[0],
-    avatar: contactData.photoURL || null,
+    name: contactName || found.name || lowerEmail.split('@')[0],
+    avatar: found.photoURL || null,
     addedAt: new Date().toISOString()
   }, { merge: true });
 }
@@ -43,20 +43,22 @@ export async function removeContact(user, contactEmail) {
 }
 
 export async function loadTalkUsers(user) {
-  const usersRef = collection(db, 'users');
-  const snap = await getDocs(usersRef);
+  const usersRef = ref(rtdb, 'users');
+  const snap = await rtdbGet(usersRef);
   const users = [];
-  snap.forEach(d => {
-    const data = d.data();
-    const email = (data.email || '').toLowerCase();
-    if (email && email !== (user.email || '').toLowerCase()) {
-      users.push({
-        email,
-        name: data.name || email.split('@')[0],
-        avatar: data.photoURL || null
-      });
-    }
-  });
+  if (snap.exists()) {
+    snap.forEach((child) => {
+      const data = child.val();
+      const email = (data.email || '').toLowerCase();
+      if (email && email !== (user.email || '').toLowerCase()) {
+        users.push({
+          email,
+          name: data.name || email.split('@')[0],
+          avatar: data.photoURL || null
+        });
+      }
+    });
+  }
   return users.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
 }
 

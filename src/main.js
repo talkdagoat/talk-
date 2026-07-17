@@ -106,9 +106,12 @@ async function switchView(view) {
     </div>
     <div id="contacts-list"></div>`;
     await refreshContacts();
-    document.getElementById('contacts-search').addEventListener('input', (e) => {
-      filterContacts(e.target.value);
-    });
+    const searchEl = document.getElementById('contacts-search');
+    if (searchEl) {
+      searchEl.addEventListener('input', (e) => {
+        filterContacts(e.target.value);
+      });
+    }
     document.querySelectorAll('.contacts-tab').forEach(tab => {
       tab.addEventListener('click', () => switchContactsTab(tab.dataset.tab));
     });
@@ -125,8 +128,12 @@ async function switchView(view) {
 }
 
 async function refreshContacts() {
-  contacts = await loadContacts(currentUser);
-  await refreshTalkUsers();
+  try {
+    contacts = await loadContacts(currentUser);
+  } catch {}
+  try {
+    await refreshTalkUsers();
+  } catch {}
   renderContactsList();
 }
 

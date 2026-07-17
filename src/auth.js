@@ -1,9 +1,10 @@
 import {
-  auth, db, googleProvider,
+  auth, db, rtdb, googleProvider,
   createUserWithEmailAndPassword, signInWithEmailAndPassword,
   sendEmailVerification, updateProfile, signOut,
   signInWithPopup, sendPasswordResetEmail,
-  collection, doc, setDoc, getDoc
+  collection, doc, setDoc, getDoc,
+  ref, set as rtdbSet
 } from './firebase.js';
 
 export function renderAuth() {
@@ -67,15 +68,22 @@ export function renderVerify(email) {
 
 export async function saveUserToDb(user) {
   const userRef = doc(db, 'users', user.uid);
-  await setDoc(userRef, {
+  const userData = {
     uid: user.uid,
     email: user.email,
     name: user.displayName || user.email.split('@')[0],
     photoURL: user.photoURL || null,
     createdAt: new Date().toISOString()
-  }, { merge: true });
-  const snap = await getDoc(userRef);
-  return snap.exists() ? snap.data() : { uid: user.uid, email: user.email, name: user.displayName || user.email };
+  };
+  await setDoc(userRef, userData, { merge: true });
+  try {
+    await rtdbSet(ref(rtdb, 'users/' + user.uid), {
+      email: user.email,
+      name: user.displayName || user.email.split('@')[0],
+      photoURL: user.photoURL || null
+    });
+  } catch {}
+  return userData;
 }
 
 export function attachAuthEvents(onAuthSuccess) {
