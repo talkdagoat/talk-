@@ -118,8 +118,17 @@ async function cleanupOldMessages(cid) {
   } catch {}
 }
 
-export function renderChatView(chatList, activeEmail, messages, user) {
+export function renderChatView(chatList, activeChat, messages, user) {
+  const activeEmail = activeChat?.email;
+  const activeName = activeChat?.name || activeEmail || '';
   const activeContact = chatList.find(c => c.email === activeEmail);
+  const displayName = activeContact?.name || activeName;
+
+  let sidebarItems = [...chatList];
+  if (activeEmail && !chatList.find(c => c.email === activeEmail)) {
+    sidebarItems.unshift({ email: activeEmail, name: activeName, lastMessage: '', lastAt: 0 });
+  }
+
   const sidebarHtml = `
   <div class="chat-sidebar">
     <div class="chat-sidebar-header">
@@ -127,8 +136,8 @@ export function renderChatView(chatList, activeEmail, messages, user) {
       <input type="text" class="contacts-search" id="chat-search" placeholder="Search..." style="margin-top:8px;" />
     </div>
     <div class="chat-list" id="chat-list">
-      ${chatList.length === 0 ? '<div style="padding:24px;text-align:center;color:var(--neutral-400);font-size:14px;">No conversations yet</div>' : ''}
-      ${chatList.map(c => {
+      ${sidebarItems.length === 0 ? '<div style="padding:24px;text-align:center;color:var(--neutral-400);font-size:14px;">No conversations yet</div>' : ''}
+      ${sidebarItems.map(c => {
         const initial = (c.name || c.email)[0].toUpperCase();
         const preview = c.lastMessage ? escapeHtml(c.lastMessage).slice(0, 40) : '';
         return `
@@ -143,11 +152,11 @@ export function renderChatView(chatList, activeEmail, messages, user) {
     </div>
   </div>`;
 
-  const mainHtml = activeEmail && activeContact ? `
+  const mainHtml = activeEmail ? `
   <div class="chat-main">
     <div class="chat-header">
-      <div class="chat-list-avatar">${(activeContact.name || activeContact.email)[0]?.toUpperCase() || '?'}</div>
-      <div class="chat-header-name">${activeContact.name || activeContact.email}</div>
+      <div class="chat-list-avatar">${(displayName)[0]?.toUpperCase() || '?'}</div>
+      <div class="chat-header-name">${displayName}</div>
     </div>
     <div class="chat-messages" id="chat-messages">
       ${messages.map(m => {

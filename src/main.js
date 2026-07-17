@@ -196,13 +196,13 @@ async function handleRemoveContact(email) {
 }
 
 function startChatFromContact(email, name) {
-  activeChat = { email, name };
+  handleSelectChat(email, name);
   switchView('chat');
 }
 
 function renderChat() {
   const content = document.getElementById('main-content');
-  content.innerHTML = renderChatView(chatList, activeChat?.email, chatMessages, currentUser);
+  content.innerHTML = renderChatView(chatList, activeChat, chatMessages, currentUser);
   attachChatEvents(handleSelectChat, handleSendMessage);
   scrollChatToBottom();
 }
