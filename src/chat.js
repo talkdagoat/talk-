@@ -118,11 +118,12 @@ async function cleanupOldMessages(cid) {
   } catch {}
 }
 
-export function renderChatView(chatList, activeChat, messages, user) {
+export function renderChatView(chatList, activeChat, messages, user, deviceMode) {
   const activeEmail = activeChat?.email;
   const activeName = activeChat?.name || activeEmail || '';
   const activeContact = chatList.find(c => c.email === activeEmail);
   const displayName = activeContact?.name || activeName;
+  const isPhone = deviceMode === 'phone';
 
   let sidebarItems = [...chatList];
   if (activeEmail && !chatList.find(c => c.email === activeEmail)) {
@@ -152,9 +153,15 @@ export function renderChatView(chatList, activeChat, messages, user) {
     </div>
   </div>`;
 
+  const backBtn = isPhone ? `
+    <button class="chat-back-btn" id="chat-back-btn" title="Back">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+    </button>` : '';
+
   const mainHtml = activeEmail ? `
   <div class="chat-main">
     <div class="chat-header">
+      ${backBtn}
       <div class="chat-list-avatar">${(displayName)[0]?.toUpperCase() || '?'}</div>
       <div class="chat-header-name">${displayName}</div>
     </div>
@@ -180,6 +187,9 @@ export function renderChatView(chatList, activeChat, messages, user) {
     <p>Select a conversation to start chatting</p>
   </div>`;
 
+  if (isPhone && activeEmail) {
+    return `<div class="chat-layout phone-chat-active">${mainHtml}</div>`;
+  }
   return `<div class="chat-layout">${sidebarHtml}${mainHtml}</div>`;
 }
 
@@ -194,12 +204,17 @@ function formatTime(ts) {
   return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
-export function attachChatEvents(onSelectChat, onSendMessage) {
+export function attachChatEvents(onSelectChat, onSendMessage, onBack) {
   document.querySelectorAll('.chat-list-item').forEach(item => {
     item.addEventListener('click', () => {
       onSelectChat(item.dataset.email, item.dataset.name);
     });
   });
+
+  const backBtn = document.getElementById('chat-back-btn');
+  if (backBtn && onBack) {
+    backBtn.addEventListener('click', () => onBack());
+  }
 
   const input = document.getElementById('chat-input');
   const sendBtn = document.getElementById('chat-send-btn');
