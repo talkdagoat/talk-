@@ -6,6 +6,41 @@ const { WebSocketServer } = require('ws');
 const fs = require('fs').promises;
 const path = require('path');
 const { promisify } = require('util');
+const webpush = require('web-push');
+
+const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY || 'BOGXp8jvbyBgFGZID7pLXjeQS6_RSDreXHxqDR1p8vfSDpWfQdSOnz58ebQEk11Dg1DmIlbTtf22ZRXocv1NdvY';
+const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY || 'hn2dxeOoHeHuC2-0EfKspalSnfYbWd5b4SdaClAiqBk';
+const VAPID_SUBJECT = 'mailto:talkapp@example.com';
+
+webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
+
+const PUSH_SUBS_FILE = path.join(__dirname, 'pushSubs.json');
+
+async function readPushSubs() {
+  try {
+    const raw = await fs.readFile(PUSH_SUBS_FILE, 'utf8');
+    return JSON.parse(raw);
+  } catch { return {}; }
+}
+
+async function writePushSubs(subs) {
+  await fs.writeFile(PUSH_SUBS_FILE, JSON.stringify(subs, null, 2));
+}
+
+async function sendPushToUser(email, payload) {
+  const subs = await readPushSubs();
+  const userSubs = subs[email] || [];
+  const payloadStr = JSON.stringify(payload);
+  const failed = [];
+  for (const sub of userSubs) {
+    try { await webpush.sendNotification(sub, payloadStr); }
+    catch (err) { if (err.statusCode === 410 || err.statusCode === 404) failed.push(sub); }
+  }
+  if (failed.length) {
+    subs[email] = userSubs.filter(s => !failed.includes(s));
+    await writePushSubs(subs);
+  }
+}
 
 const PORT = process.env.PORT || 5000;
 const HOST = '0.0.0.0';
@@ -954,6 +989,33 @@ app.get('/api/admin/download', (req, res) => {
 const distDir = path.join(__dirname, 'dist');
 let serveDir = __dirname;
 try { require('fs').accessSync(distDir); serveDir = distDir; } catch {}
+app.post('/api/push/subscribe', async (req, res) => {
+  const { email, subscription } = req.body || {};
+  if (!email || !subscription || !subscription.endpoint) return res.status(400).json({ error: 'missing' });
+  const subs = await readPushSubs();
+  if (!subs[email]) subs[email] = [];
+  const exists = subs[email].find(s => s.endpoint === subscription.endpoint);
+  if (!exists) subs[email].push(subscription);
+  await writePushSubs(subs);
+  res.json({ ok: true });
+});
+
+app.post('/api/push/unsubscribe', async (req, res) => {
+  const { email, endpoint } = req.body || {};
+  if (!email || !endpoint) return res.status(400).json({ error: 'missing' });
+  const subs = await readPushSubs();
+  if (subs[email]) {
+    subs[email] = subs[email].filter(s => s.endpoint !== endpoint);
+    if (subs[email].length === 0) delete subs[email];
+    await writePushSubs(subs);
+  }
+  res.json({ ok: true });
+});
+
+app.get('/api/push/vapid-public', (req, res) => {
+  res.json({ publicKey: VAPID_PUBLIC_KEY });
+});
+
 app.use(express.static(serveDir, {
     setHeaders: (res) => res.setHeader('Cache-Control', 'no-store'),
     extensions: ['html'],
@@ -1043,6 +1105,17 @@ wss.on('connection', (ws) => {
             const callKey = ws.email + ':' + msg.to;
             pendingCalls.set(callKey, { id: newId(), from: ws.email, to: msg.to, callType: msg.callType || 'audio', startTime: new Date().toISOString(), status: 'ringing' });
             sendTo(msg.to, { ...msg, from: ws.email });
+            const data = await readData();
+            const fromName = data.users[ws.email]?.name || ws.email;
+            sendPushToUser(msg.to, {
+                title: 'Incoming ' + (msg.callType === 'video' ? 'video' : 'audio') + ' call',
+                body: fromName + ' is calling you',
+                tag: 'call-' + ws.email,
+                type: 'call-invite',
+                from: ws.email,
+                fromName,
+                callType: msg.callType || 'audio'
+            }).catch(() => {});
             return;
         }
         if (msg.type === 'call-accept' && msg.to) {

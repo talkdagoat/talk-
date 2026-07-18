@@ -5,6 +5,7 @@ import { loadChatList, subscribeToMessages, sendMessage, renderChatView, attachC
 import { rtdb, ref, onValue } from './firebase.js';
 import { renderGamesView, attachGamesEvents } from './games.js';
 import { auth, signOut, onAuthStateChanged, updateProfile, db, doc, setDoc } from './firebase.js';
+import { initPushNotifications, subscribeUserToPush, unsubscribeUserFromPush, setCallNotificationHandler } from './push.js';
 
 let currentUser = null;
 let activeView = 'contacts';
@@ -67,6 +68,8 @@ function showDeviceSelect() {
 
 function enterApp(user) {
   currentUser = user;
+  setCallNotificationHandler(handleCallNotification);
+  initPushNotifications().then(() => subscribeUserToPush(user.email));
   const saved = localStorage.getItem('talk_device');
   if (saved) {
     deviceMode = saved;
@@ -143,6 +146,7 @@ function renderShell() {
     logoutBtn.addEventListener('click', async () => {
       if (chatUnsub) { chatUnsub(); chatUnsub = null; }
       if (inboxUnsub) { inboxUnsub(); inboxUnsub = null; }
+      if (currentUser) await unsubscribeUserFromPush(currentUser.email);
       await signOut(auth);
       currentUser = null;
       location.reload();
@@ -394,6 +398,12 @@ function handleSelectChat(email, name) {
     renderChat();
   });
   renderChat();
+}
+
+function handleCallNotification(msg) {
+  if (!currentUser || !msg.from) return;
+  const contact = chatList.find(c => c.email === msg.from);
+  handleSelectChat(msg.from, contact?.name || msg.fromName || msg.from);
 }
 
 async function handleSendMessage(text) {
