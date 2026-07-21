@@ -10,7 +10,13 @@ export function renderGamesView() {
       <div class="game-card-icon" style="background:#e0f2fe;">🃏</div>
       <h3>Memory Match</h3>
       <p>Flip cards and find all matching pairs. Track your moves.</p>
+   </div>
     </div>
+  <div class="game-card" id="game-memory">
+    <div class="game-card-icon" style="background:#e0f2fe;">🧠</div>
+    <h3>Mind heist</h3>
+    <p>Coming Soon!!! 😄</p>
+   </div>
   </div>`;
 }
 
