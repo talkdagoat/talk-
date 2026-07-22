@@ -17,6 +17,11 @@ export function renderGamesView() {
     <h3>Mind heist</h3>
     <p>Coming Soon!!! 😄</p>
    </div>
+<div class="game-card" id="arcade">
+    <div class="game-card-icon" style="background:#e0f2fe;">🕹️</div>
+    <h3>Arcade.exe</h3>
+    <p>Play space shooter and a gap jumper game!👑</p>
+   </div>
   </div>`;
 }
 
@@ -24,6 +29,7 @@ export function attachGamesEvents() {
   document.getElementById('game-ttt')?.addEventListener('click', openTicTacToe);
   document.getElementById('game-memory')?.addEventListener('click', openMemory);
   document.getElementById("agame-memory").addEventListener("click", openMindHeist);
+  document.getElementById("arcade").addEventListener("click", openArcade);
 }
 
 /* ===== Tic-Tac-Toe ===== */
@@ -200,6 +206,56 @@ if (menuContainer) menuContainer.style.display = 'none';
 // 2. Create the full-screen iframe for the game
 const gameIframe = document.createElement('iframe');
 gameIframe.src = 'google.com'; 
+gameIframe.style.width = '100vw';
+gameIframe.style.height = '100vh';
+gameIframe.style.border = 'none';
+gameIframe.style.position = 'fixed';
+gameIframe.style.top = '0';
+gameIframe.style.left = '0';
+gameIframe.style.zIndex = '9998'; // Floating right below the back button
+
+// 3. Create the floating Back button
+const backButton = document.createElement('button');
+backButton.textContent = '← Back to Menu';
+backButton.style.position = 'fixed';
+backButton.style.top = '20px';
+backButton.style.left = '20px';
+backButton.style.zIndex = '9999'; // Highest layer to stay visible over the game
+backButton.style.padding = '10px 15px';
+backButton.style.backgroundColor = '#ff4444';
+backButton.style.color = 'white';
+backButton.style.border = 'none';
+backButton.style.borderRadius = '5px';
+backButton.style.cursor = 'pointer';
+backButton.style.fontSize = '14px';
+backButton.style.fontWeight = 'bold';
+
+// 4. Set up the Exit functionality inside the Back button
+backButton.addEventListener('click', () => {
+    gameIframe.remove();  // Destroy the game session
+    backButton.remove();  // Destroy the back button
+    
+    // Bring your main menu elements back to life
+    if (menuContainer) menuContainer.style.display = 'block'; 
+    // If you hid individual buttons instead, reset them here: myButton.style.display = 'inline-block';
+});
+
+// 5. Inject the iframe and button into your page
+document.body.appendChild(gameIframe);
+document.body.appendChild(backButton);
+
+}
+
+function openArcade(){
+  // 1. Hide your current menu elements (adjust these selectors to match your CSS/HTML)
+// If your menu button is named 'myButton', use: myButton.style.display = 'none';
+// You can also hide a whole container div if you have one:
+const menuContainer = document.querySelector('.menu-container'); // Example selector
+if (menuContainer) menuContainer.style.display = 'none';
+
+// 2. Create the full-screen iframe for the game
+const gameIframe = document.createElement('iframe');
+gameIframe.src = './games/arcade.html'; 
 gameIframe.style.width = '100vw';
 gameIframe.style.height = '100vh';
 gameIframe.style.border = 'none';
