@@ -18,9 +18,19 @@ export function renderGamesView() {
     <p>Coming Soon!!! 😄</p>
    </div>
 <div class="game-card" id="arcade">
+    <div class="game-card-icon" style="background:#e0f2fe;">🚀</div>
+    <h3>Space Shooter</h3>
+    <p>Kill monsters earn points</p>
+   </div>
+<div class="game-card" id="jump">
+    <div class="game-card-icon" style="background:#e0f2fe;">👾</div>
+    <h3>Gap Jumper</h3>
+    <p>Jump the gaps</p>
+   </div>
+<div class="game-card" id="dodge">
     <div class="game-card-icon" style="background:#e0f2fe;">🕹️</div>
-    <h3>Arcade.exe</h3>
-    <p>Play space shooter and a gap jumper game!👑</p>
+    <h3>Dodger</h3>
+    <p>Dodge the red and earn the money</p>
    </div>
   </div>`;
 }
@@ -30,6 +40,8 @@ export function attachGamesEvents() {
   document.getElementById('game-memory')?.addEventListener('click', openMemory);
   document.getElementById("agame-memory").addEventListener("click", openMindHeist);
   document.getElementById("arcade").addEventListener("click", openArcade);
+  document.getElementById("jump").addEventListener("click", openJump);
+  document.getElementById("dodge").addEventListener("click", openDodger);
 }
 
 /* ===== Tic-Tac-Toe ===== */
@@ -200,5 +212,11 @@ function openMindHeist(){
 window.location.href = 'https://google.com'
 }
 function openArcade() {
-  window.location.href = "/talk-/games/arcade.html"
+  window.location.href = "https://talkdagoat.github.io/Space-shooter/"
+}
+function openJump() {
+  window.location.href = "https://talkdagoat.github.io/Gap-jumper/"
+}
+function openDodger() {
+  window.location.href = "https://talkdagoat.github.io/Dodger/"
 }
