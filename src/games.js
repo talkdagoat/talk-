@@ -12,7 +12,7 @@ export function renderGamesView() {
       <p>Flip cards and find all matching pairs. Track your moves.</p>
    </div>
     </div>
-  <div class="game-card" id="game-memory">
+  <div class="game-card" id="agame-memory">
     <div class="game-card-icon" style="background:#e0f2fe;">🧠</div>
     <h3>Mind heist</h3>
     <p>Coming Soon!!! 😄</p>
@@ -23,6 +23,7 @@ export function renderGamesView() {
 export function attachGamesEvents() {
   document.getElementById('game-ttt')?.addEventListener('click', openTicTacToe);
   document.getElementById('game-memory')?.addEventListener('click', openMemory);
+  document.getElementById("agame-memory").addEventListener("click", openMindHeist);
 }
 
 /* ===== Tic-Tac-Toe ===== */
@@ -188,4 +189,7 @@ function openMemory() {
 
   document.body.appendChild(overlay);
   render();
+}
+function openMindHeist(){
+  window.open("google.com" , "_blank")
 }
