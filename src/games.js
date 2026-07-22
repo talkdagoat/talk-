@@ -197,8 +197,8 @@ function openMemory() {
   render();
 }
 function openMindHeist(){
-window.location.href = 'google.com'
+window.location.href = 'https://google.com'
 }
 function openArcade() {
-  window.location.href = "./talk-/games/arcade.html"
+  window.location.href = "/talk-/games/arcade.html"
 }
