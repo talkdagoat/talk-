@@ -22,9 +22,10 @@ export async function loadChatList(user, contacts) {
   snap.forEach((child) => {
     const val = child.val();
     if (val && val.email) {
+      const contact = contacts.find(c => c.email === val.email);
       chats.push({
         email: val.email,
-        name: val.name || val.email,
+        name: contact?.name || val.name || val.email,
         chatId: child.key,
         lastMessage: val.lastMessage || '',
         lastAt: val.lastAt || 0
@@ -51,22 +52,49 @@ export function subscribeToMessages(user, contactEmail, callback) {
   });
 }
 
+export function subscribeToTyping(user, contactEmail, callback) {
+  const cid = chatId(user.email, contactEmail);
+  const typingRef = ref(rtdb, `chats/${cid}/typing/${emailKey(contactEmail)}`);
+  return onValue(typingRef, (snap) => {
+    const val = snap.val();
+    if (val && val.isTyping && Date.now() - val.timestamp < 5000) {
+      callback(true);
+    } else {
+      callback(false);
+    }
+  });
+}
+
+export async function setTypingStatus(user, contactEmail, isTyping) {
+  const cid = chatId(user.email, contactEmail);
+  const typingRef = ref(rtdb, `chats/${cid}/typing/${emailKey(user.email)}`);
+  if (isTyping) {
+    await set(typingRef, { isTyping: true, timestamp: Date.now() });
+  } else {
+    await set(typingRef, { isTyping: false, timestamp: Date.now() });
+  }
+}
+
 export async function sendMessage(user, contactEmail, text) {
   const cid = chatId(user.email, contactEmail);
   const messagesRef = ref(rtdb, `chats/${cid}/messages`);
   const newMsgRef = push(messagesRef);
   const now = Date.now();
-  await set(newMsgRef, {
+  const msgData = {
     text,
     sender: user.uid,
     senderEmail: user.email,
     createdAt: now,
-    id: newMsgRef.key
-  });
+    id: newMsgRef.key,
+    status: 'sent',
+    readBy: []
+  };
+  await set(newMsgRef, msgData);
 
+  const contactName = await getContactName(contactEmail);
   const inboxEntry = {
     email: contactEmail,
-    name: (user.name || user.email),
+    name: contactName || contactEmail,
     lastMessage: text,
     lastAt: now
   };
@@ -85,45 +113,93 @@ export async function sendMessage(user, contactEmail, text) {
   enforceMessageLimit(cid);
 }
 
-async function enforceMessageLimit(cid) {
+async function getContactName(email) {
   try {
-    const messagesRef = ref(rtdb, `chats/${cid}/messages`);
-    const snap = await get(messagesRef);
-    if (!snap.exists()) return;
-    const all = [];
-    snap.forEach((child) => all.push({ key: child.key, createdAt: child.val().createdAt || 0 }));
-    if (all.length <= MESSAGE_LIMIT) return;
-    all.sort((a, b) => a.createdAt - b.createdAt);
-    const toRemove = all.slice(0, all.length - MESSAGE_LIMIT);
-    for (const m of toRemove) {
-      await remove(ref(rtdb, `chats/${cid}/messages/${m.key}`));
+    const userRef = ref(rtdb, 'users');
+    const snap = await get(userRef);
+    let name = null;
+    if (snap.exists()) {
+      snap.forEach((child) => {
+        const data = child.val();
+        if ((data.email || '').toLowerCase() === (email || '').toLowerCase()) {
+          name = data.name || email;
+        }
+      });
     }
-  } catch {}
+    return name;
+  } catch {
+    return null;
+  }
 }
 
-async function cleanupOldMessages(cid) {
+export async function editMessage(user, contactEmail, msgId, newText) {
+  const cid = chatId(user.email, contactEmail);
+  const msgRef = ref(rtdb, `chats/${cid}/messages/${msgId}`);
+  const snap = await get(msgRef);
+  if (!snap.exists()) return;
+  const msg = snap.val();
+  if (msg.senderEmail !== user.email) return;
+  await update(msgRef, { text: newText, edited: true });
+}
+
+export async function deleteMessage(user, contactEmail, msgId) {
+  const cid = chatId(user.email, contactEmail);
+  const msgRef = ref(rtdb, `chats/${cid}/messages/${msgId}`);
+  const snap = await get(msgRef);
+  if (!snap.exists()) return;
+  const msg = snap.val();
+  if (msg.senderEmail !== user.email) return;
+  await update(msgRef, { deleted: true, text: '' });
+}
+
+export async function markMessagesRead(user, contactEmail) {
+  const cid = chatId(user.email, contactEmail);
+  const messagesRef = ref(rtdb, `chats/${cid}/messages`);
+  const snap = await get(messagesRef);
+  if (!snap.exists()) return;
+  const updates = {};
+  snap.forEach((child) => {
+    const msg = child.val();
+    if (msg.senderEmail !== user.email) {
+      const readBy = msg.readBy || [];
+      if (!readBy.includes(user.email)) {
+        readBy.push(user.email);
+        updates[`${child.key}/readBy`] = readBy;
+        updates[`${child.key}/status`] = 'read';
+      }
+    }
+  });
+  if (Object.keys(updates).length > 0) {
+    await update(messagesRef, updates);
+  }
+}
+
+export async function initiateCall(user, contactEmail, callType) {
   try {
-    const messagesRef = ref(rtdb, `chats/${cid}/messages`);
-    const snap = await get(messagesRef);
-    if (!snap.exists()) return;
-    const cutoff = Date.now() - SIX_MONTHS_MS;
-    const toRemove = [];
-    snap.forEach((child) => {
-      const val = child.val();
-      if (val.createdAt && val.createdAt < cutoff) toRemove.push(child.key);
+    const response = await fetch('/api/call/initiate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        fromEmail: user.email,
+        fromName: user.name || user.email,
+        toEmail: contactEmail,
+        callType: callType || 'audio'
+      })
     });
-    for (const key of toRemove) {
-      await remove(ref(rtdb, `chats/${cid}/messages/${key}`));
-    }
-  } catch {}
+    return await response.json();
+  } catch (err) {
+    console.warn('Call initiation failed:', err);
+    return { success: false };
+  }
 }
 
-export function renderChatView(chatList, activeChat, messages, user, deviceMode) {
+export function renderChatView(chatList, activeChat, messages, user, deviceMode, typingStatus) {
   const activeEmail = activeChat?.email;
   const activeName = activeChat?.name || activeEmail || '';
   const activeContact = chatList.find(c => c.email === activeEmail);
   const displayName = activeContact?.name || activeName;
   const isPhone = deviceMode === 'phone';
+  const isTyping = typingStatus?.isTyping || false;
 
   let sidebarItems = [...chatList];
   if (activeEmail && !chatList.find(c => c.email === activeEmail)) {
@@ -158,22 +234,32 @@ export function renderChatView(chatList, activeChat, messages, user, deviceMode)
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
     </button>` : '';
 
+  const callButtons = activeEmail ? `
+    <div class="chat-call-buttons">
+      <button class="chat-call-btn audio-call" id="audio-call-btn" title="Audio call">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+      </button>
+      <button class="chat-call-btn video-call" id="video-call-btn" title="Video call">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+      </button>
+    </div>` : '';
+
   const mainHtml = activeEmail ? `
   <div class="chat-main">
     <div class="chat-header">
       ${backBtn}
       <div class="chat-list-avatar">${(displayName)[0]?.toUpperCase() || '?'}</div>
-      <div class="chat-header-name">${displayName}</div>
+      <div class="chat-header-info">
+        <div class="chat-header-name">${displayName}</div>
+        <div class="chat-header-status ${isTyping ? 'typing' : ''}" id="chat-header-status">${isTyping ? 'typing...' : ''}</div>
+      </div>
+      ${callButtons}
     </div>
     <div class="chat-messages" id="chat-messages">
-      ${messages.map(m => {
-        const sent = m.senderEmail === user.email || m.sender === user.uid;
-        return `
-        <div class="chat-bubble ${sent ? 'sent' : 'received'}">
-          ${escapeHtml(m.text)}
-          <div class="chat-bubble-time">${formatTime(m.createdAt)}</div>
-        </div>`;
-      }).join('')}
+      ${renderMessageList(messages, user)}
+    </div>
+    <div class="chat-typing-indicator" id="chat-typing-indicator" style="display:${isTyping ? 'flex' : 'none'};">
+      <span></span><span></span><span></span>
     </div>
     <div class="chat-input-bar">
       <input type="text" class="chat-input" id="chat-input" placeholder="Type a message..." />
@@ -193,6 +279,75 @@ export function renderChatView(chatList, activeChat, messages, user, deviceMode)
   return `<div class="chat-layout">${sidebarHtml}${mainHtml}</div>`;
 }
 
+function renderMessageList(messages, user) {
+  let html = '';
+  let lastDate = null;
+  for (const m of messages) {
+    const dk = dateKey(m.createdAt);
+    if (dk !== lastDate) {
+      html += `<div class="chat-date-divider"><span>${formatDateDivider(m.createdAt)}</span></div>`;
+      lastDate = dk;
+    }
+    html += renderMessageBubble(m, user);
+  }
+  return html;
+}
+
+function renderMessageBubble(m, user) {
+  const sent = m.senderEmail === user.email || m.sender === user.uid;
+
+  if (m.deleted) {
+    return `<div class="chat-bubble ${sent ? 'sent' : 'received'} deleted">
+      <span class="chat-deleted-text">This message was deleted</span>
+      <div class="chat-bubble-time">${formatTime(m.createdAt)}</div>
+    </div>`;
+  }
+
+  const statusIcon = sent ? renderStatusIcon(m) : '';
+  const editedMark = m.edited ? '<span class="chat-edited">edited</span>' : '';
+  const escapedText = escapeHtml(m.text);
+
+  return `
+    <div class="chat-bubble ${sent ? 'sent' : 'received'}" data-msg-id="${m.id}" data-sender="${m.senderEmail}">
+      <span class="chat-bubble-text">${escapedText}</span>
+      ${editedMark}
+      <div class="chat-bubble-meta">
+        <span class="chat-bubble-time">${formatTime(m.createdAt)}</span>
+        ${statusIcon}
+      </div>
+      ${sent && !m.deleted ? `
+      <div class="chat-msg-actions">
+        <button class="chat-msg-action-btn" data-action="edit" data-msg-id="${m.id}" data-text="${escapeHtml(m.text)}" title="Edit">✏️</button>
+        <button class="chat-msg-action-btn" data-action="delete" data-msg-id="${m.id}" title="Delete">🗑️</button>
+      </div>` : ''}
+    </div>`;
+}
+
+function renderStatusIcon(m) {
+  if (m.deleted) return '';
+  if (m.readBy && m.readBy.length > 0) {
+    return '<span class="chat-status read" title="Read">✓✓</span>';
+  }
+  if (m.status === 'delivered') {
+    return '<span class="chat-status delivered" title="Delivered">✓✓</span>';
+  }
+  return '<span class="chat-status sent" title="Sent">✓</span>';
+}
+
+function dateKey(ts) {
+  const d = new Date(ts);
+  return d.getFullYear() + '-' + d.getMonth() + '-' + d.getDate();
+}
+
+function formatDateDivider(ts) {
+  const d = new Date(ts);
+  const now = new Date();
+  const diff = Math.floor((now - d) / 86400000);
+  if (diff === 0) return 'Today';
+  if (diff === 1) return 'Yesterday';
+  return d.toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' });
+}
+
 function escapeHtml(text) {
   if (!text) return '';
   return String(text).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -204,7 +359,9 @@ function formatTime(ts) {
   return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
-export function attachChatEvents(onSelectChat, onSendMessage, onBack) {
+export function attachChatEvents(handlers) {
+  const { onSelectChat, onSendMessage, onBack, onTyping, onEditMessage, onDeleteMessage, onCall } = handlers;
+
   document.querySelectorAll('.chat-list-item').forEach(item => {
     item.addEventListener('click', () => {
       onSelectChat(item.dataset.email, item.dataset.name);
@@ -224,12 +381,42 @@ export function attachChatEvents(onSelectChat, onSendMessage, onBack) {
       if (text) {
         onSendMessage(text);
         input.value = '';
+        if (onTyping) onTyping(false);
       }
     };
     sendBtn.addEventListener('click', send);
     input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
     });
+
+    if (onTyping) {
+      let typingTimer = null;
+      let isCurrentlyTyping = false;
+      input.addEventListener('input', () => {
+        const hasText = input.value.length > 0;
+        if (hasText && !isCurrentlyTyping) {
+          isCurrentlyTyping = true;
+          onTyping(true);
+        }
+        clearTimeout(typingTimer);
+        if (hasText) {
+          typingTimer = setTimeout(() => {
+            isCurrentlyTyping = false;
+            onTyping(false);
+          }, 2500);
+        } else {
+          isCurrentlyTyping = false;
+          onTyping(false);
+        }
+      });
+      input.addEventListener('blur', () => {
+        if (isCurrentlyTyping) {
+          isCurrentlyTyping = false;
+          onTyping(false);
+        }
+        clearTimeout(typingTimer);
+      });
+    }
   }
 
   const search = document.getElementById('chat-search');
@@ -242,6 +429,29 @@ export function attachChatEvents(onSelectChat, onSendMessage, onBack) {
         item.style.display = (name.includes(q) || email.includes(q)) ? '' : 'none';
       });
     });
+  }
+
+  document.querySelectorAll('.chat-msg-action-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const action = btn.dataset.action;
+      const msgId = btn.dataset.msgId;
+      if (action === 'edit' && onEditMessage) {
+        const text = btn.dataset.text || '';
+        onEditMessage(msgId, text);
+      } else if (action === 'delete' && onDeleteMessage) {
+        onDeleteMessage(msgId);
+      }
+    });
+  });
+
+  const audioCallBtn = document.getElementById('audio-call-btn');
+  if (audioCallBtn && onCall) {
+    audioCallBtn.addEventListener('click', () => onCall('audio'));
+  }
+  const videoCallBtn = document.getElementById('video-call-btn');
+  if (videoCallBtn && onCall) {
+    videoCallBtn.addEventListener('click', () => onCall('video'));
   }
 }
 

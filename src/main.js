@@ -1,7 +1,7 @@
 import { renderLanding, attachLandingEvents } from './landing.js';
 import { renderAuth, attachAuthEvents, saveUserToDb } from './auth.js';
 import { loadContacts, addContact, removeContact, renderContactsView, attachContactsEvents, loadTalkUsers, renderTalkUsersDirectory, attachDirectoryEvents } from './contacts.js';
-import { loadChatList, subscribeToMessages, sendMessage, renderChatView, attachChatEvents, emailKey } from './chat.js';
+import { loadChatList, subscribeToMessages, sendMessage, renderChatView, attachChatEvents, emailKey, subscribeToTyping, setTypingStatus, editMessage, deleteMessage, markMessagesRead, initiateCall } from './chat.js';
 import { rtdb, ref, onValue } from './firebase.js';
 import { renderGamesView, attachGamesEvents } from './games.js';
 import { auth, signOut, onAuthStateChanged, updateProfile, db, doc, setDoc } from './firebase.js';
@@ -16,6 +16,8 @@ let activeChat = null;
 let chatMessages = [];
 let chatUnsub = null;
 let inboxUnsub = null;
+let typingUnsub = null;
+let isPeerTyping = false;
 
 const app = document.getElementById('app');
 
@@ -355,14 +357,24 @@ function startChatFromContact(email, name) {
 function backToChatList() {
   activeChat = null;
   if (chatUnsub) { chatUnsub(); chatUnsub = null; }
+  if (typingUnsub) { typingUnsub(); typingUnsub = null; }
+  isPeerTyping = false;
   chatMessages = [];
   renderChat();
 }
 
 function renderChat() {
   const content = document.getElementById('main-content');
-  content.innerHTML = renderChatView(chatList, activeChat, chatMessages, currentUser, deviceMode);
-  attachChatEvents(handleSelectChat, handleSendMessage, backToChatList);
+  content.innerHTML = renderChatView(chatList, activeChat, chatMessages, currentUser, deviceMode, { isTyping: isPeerTyping });
+  attachChatEvents({
+    onSelectChat: handleSelectChat,
+    onSendMessage: handleSendMessage,
+    onBack: backToChatList,
+    onTyping: handleTyping,
+    onEditMessage: handleEditMessage,
+    onDeleteMessage: handleDeleteMessage,
+    onCall: handleCall
+  });
   scrollChatToBottom();
 }
 
@@ -391,10 +403,17 @@ function subscribeToInbox() {
 
 function handleSelectChat(email, name) {
   if (chatUnsub) { chatUnsub(); chatUnsub = null; }
+  if (typingUnsub) { typingUnsub(); typingUnsub = null; }
+  isPeerTyping = false;
   activeChat = { email, name };
   chatMessages = [];
   chatUnsub = subscribeToMessages(currentUser, email, (msgs) => {
     chatMessages = msgs;
+    renderChat();
+    markMessagesRead(currentUser, email);
+  });
+  typingUnsub = subscribeToTyping(currentUser, email, (isTyping) => {
+    isPeerTyping = isTyping;
     renderChat();
   });
   renderChat();
@@ -409,6 +428,34 @@ function handleCallNotification(msg) {
 async function handleSendMessage(text) {
   if (!activeChat) return;
   await sendMessage(currentUser, activeChat.email, text);
+}
+
+async function handleTyping(isTyping) {
+  if (!activeChat) return;
+  await setTypingStatus(currentUser, activeChat.email, isTyping);
+}
+
+async function handleEditMessage(msgId, oldText) {
+  const newText = prompt('Edit message:', oldText);
+  if (newText && newText.trim() && newText.trim() !== oldText) {
+    await editMessage(currentUser, activeChat.email, msgId, newText.trim());
+  }
+}
+
+async function handleDeleteMessage(msgId) {
+  if (confirm('Delete this message?')) {
+    await deleteMessage(currentUser, activeChat.email, msgId);
+  }
+}
+
+async function handleCall(callType) {
+  if (!activeChat) return;
+  const result = await initiateCall(currentUser, activeChat.email, callType);
+  if (result.success) {
+    alert(`${callType === 'video' ? 'Video' : 'Audio'} call initiated to ${activeChat.name || activeChat.email}`);
+  } else {
+    alert('Call failed. The recipient may be offline.');
+  }
 }
 
 function scrollChatToBottom() {

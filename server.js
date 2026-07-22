@@ -880,6 +880,31 @@ app.delete('/api/leaderboard', async (req, res) => {
 });
 
 // ---------- Call history ----------
+app.post('/api/call/initiate', async (req, res) => {
+    const { fromEmail, fromName, toEmail, callType } = req.body || {};
+    if (!fromEmail || !toEmail) return res.status(400).json({ error: 'fromEmail and toEmail required' });
+    const data = await readData();
+    if (!data.users[toEmail]) return res.status(404).json({ error: 'Recipient not found' });
+    const fromNameResolved = fromName || data.users[fromEmail]?.name || fromEmail;
+    const cType = callType === 'video' ? 'video' : 'audio';
+    sendPushToUser(toEmail, {
+        title: 'Incoming ' + cType + ' call',
+        body: fromNameResolved + ' is calling you',
+        tag: 'call-' + fromEmail,
+        type: 'call-invite',
+        from: fromEmail,
+        fromName: fromNameResolved,
+        callType: cType
+    }).catch(() => {});
+    try {
+        const ws = clients.get(toEmail);
+        if (ws && ws.readyState === ws.OPEN) {
+            ws.send(JSON.stringify({ type: 'call-invite', from: fromEmail, fromName: fromNameResolved, callType: cType }));
+        }
+    } catch {}
+    res.json({ success: true });
+});
+
 app.get('/api/calls/:email', async (req, res) => {
     const { email } = req.params;
     const data = await readData();
