@@ -209,7 +209,7 @@ function openMemory() {
   render();
 }
 function openMindHeist(){
-window.location.href = 'https://google.com'
+window.location.href = 'https://mind-heist.onrender.com'
 }
 function openArcade() {
   window.location.href = "https://talkdagoat.github.io/Space-shooter/"
