@@ -349,9 +349,9 @@ async function handleRemoveContact(email) {
   }
 }
 
-function startChatFromContact(email, name) {
+async function startChatFromContact(email, name) {
+  await switchView('chat');
   handleSelectChat(email, name);
-  switchView('chat');
 }
 
 function backToChatList() {
@@ -386,9 +386,10 @@ function subscribeToInbox() {
     snap.forEach((child) => {
       const val = child.val();
       if (val && val.email) {
+        const contact = contacts.find(c => c.email === val.email);
         chats.push({
           email: val.email,
-          name: val.name || val.email,
+          name: contact?.name || val.name || val.email,
           chatId: child.key,
           lastMessage: val.lastMessage || '',
           lastAt: val.lastAt || 0
