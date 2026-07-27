@@ -15,7 +15,7 @@ export function renderGamesView() {
   <div class="game-card" id="agame-memory">
     <div class="game-card-icon" style="background:#e0f2fe;">🧠</div>
     <h3>Mind heist</h3>
-    <p>Coming Soon!!! 😄</p>
+    <p>Fun Card Game - Minimum 3 players</p>
    </div>
 <div class="game-card" id="arcade">
     <div class="game-card-icon" style="background:#e0f2fe;">🚀</div>
