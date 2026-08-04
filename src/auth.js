@@ -22,7 +22,7 @@ export function renderAuth() {
         <div class="auth-field">
           <label>Email</label>
           <input type="email" id="auth-email" placeholder="you@example.com" autocomplete="email" required />
-        </div>i
+        </div>
         <div class="auth-field">
           <label>Password</label>
           <input type="password" id="auth-password" placeholder="••••••••" autocomplete="current-password" required />
