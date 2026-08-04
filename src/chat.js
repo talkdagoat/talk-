@@ -41,8 +41,6 @@ export function subscribeToMessages(user, contactEmail, callback) {
   const messagesRef = ref(rtdb, `chats/${cid}/messages`);
   const q = rtdbQuery(messagesRef, orderByChild('createdAt'), limitToLast(MESSAGE_LIMIT));
 
-  cleanupOldMessages(cid);
-
   return onValue(q, (snap) => {
     const messages = [];
     snap.forEach((child) => {
@@ -111,6 +109,22 @@ export async function sendMessage(user, contactEmail, text) {
   } catch {}
 
   enforceMessageLimit(cid);
+}
+
+async function enforceMessageLimit(cid) {
+  try {
+    const messagesRef = ref(rtdb, `chats/${cid}/messages`);
+    const snap = await get(messagesRef);
+    if (!snap.exists()) return;
+    const all = [];
+    snap.forEach((child) => { all.push({ id: child.key, createdAt: child.val().createdAt || 0 }); });
+    if (all.length <= MESSAGE_LIMIT) return;
+    all.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+    const toDelete = all.slice(0, all.length - MESSAGE_LIMIT);
+    for (const m of toDelete) {
+      try { await remove(ref(rtdb, `chats/${cid}/messages/${m.id}`)); } catch {}
+    }
+  } catch {}
 }
 
 async function getContactName(email) {

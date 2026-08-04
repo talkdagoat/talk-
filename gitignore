@@ -1,7 +1,0 @@
-node_modules/
-data.json
-.env
-.cache/
-.upm/
-*.zip
-package-lock.json

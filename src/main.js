@@ -275,8 +275,12 @@ async function switchView(view) {
     });
   } else if (view === 'chat') {
     title.textContent = 'Chat';
-    chatList = await loadChatList(currentUser, contacts);
     chatRendered = false;
+    try {
+      chatList = await loadChatList(currentUser, contacts);
+    } catch {
+      chatList = [];
+    }
     renderChat();
     subscribeToInbox();
   } else if (view === 'games') {

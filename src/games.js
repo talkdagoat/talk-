@@ -10,28 +10,27 @@ export function renderGamesView() {
       <div class="game-card-icon" style="background:#e0f2fe;">🃏</div>
       <h3>Memory Match</h3>
       <p>Flip cards and find all matching pairs. Track your moves.</p>
-   </div>
     </div>
-  <div class="game-card" id="agame-memory">
-    <div class="game-card-icon" style="background:#e0f2fe;">🧠</div>
-    <h3>Mind heist</h3>
-    <p>Coming Soon!!! 😄</p>
-   </div>
-<div class="game-card" id="arcade">
-    <div class="game-card-icon" style="background:#e0f2fe;">🚀</div>
-    <h3>Space Shooter</h3>
-    <p>Kill monsters earn points</p>
-   </div>
-<div class="game-card" id="jump">
-    <div class="game-card-icon" style="background:#e0f2fe;">👾</div>
-    <h3>Gap Jumper</h3>
-    <p>Jump the gaps</p>
-   </div>
-<div class="game-card" id="dodge">
-    <div class="game-card-icon" style="background:#e0f2fe;">🕹️</div>
-    <h3>Dodger</h3>
-    <p>Dodge the red and earn the money</p>
-   </div>
+    <div class="game-card" id="agame-memory">
+      <div class="game-card-icon" style="background:#e0f2fe;">🧠</div>
+      <h3>Mind heist</h3>
+      <p>Coming Soon!!! 😄</p>
+    </div>
+    <div class="game-card" id="arcade">
+      <div class="game-card-icon" style="background:#e0f2fe;">🚀</div>
+      <h3>Space Shooter</h3>
+      <p>Kill monsters earn points</p>
+    </div>
+    <div class="game-card" id="jump">
+      <div class="game-card-icon" style="background:#e0f2fe;">👾</div>
+      <h3>Gap Jumper</h3>
+      <p>Jump the gaps</p>
+    </div>
+    <div class="game-card" id="dodge">
+      <div class="game-card-icon" style="background:#e0f2fe;">🕹️</div>
+      <h3>Dodger</h3>
+      <p>Dodge the red and earn the money</p>
+    </div>
   </div>`;
 }
 
