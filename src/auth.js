@@ -13,6 +13,7 @@ export function renderAuth() {
     <div class="auth-card">
       <div class="auth-logo">Talk</div>
       <div class="auth-subtitle" id="auth-subtitle">Sign in to your account</div>
+      <div class="auth-message" id="auth-subtitle">we are sorry for the inconvinience but for adding email verificaton we had to delete account only on aug 4 2026</div>
       <form id="auth-form">
         <div class="auth-field" id="name-field" style="display:none;">
           <label>Name</label>
@@ -21,7 +22,7 @@ export function renderAuth() {
         <div class="auth-field">
           <label>Email</label>
           <input type="email" id="auth-email" placeholder="you@example.com" autocomplete="email" required />
-        </div>
+        </div>i
         <div class="auth-field">
           <label>Password</label>
           <input type="password" id="auth-password" placeholder="••••••••" autocomplete="current-password" required />
