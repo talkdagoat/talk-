@@ -1,11 +1,12 @@
 import { renderLanding, attachLandingEvents } from './landing.js';
 import { renderAuth, attachAuthEvents, saveUserToDb } from './auth.js';
 import { loadContacts, addContact, removeContact, renderContactsView, attachContactsEvents, loadTalkUsers, renderTalkUsersDirectory, attachDirectoryEvents } from './contacts.js';
-import { loadChatList, subscribeToMessages, sendMessage, renderChatView, attachChatEvents, emailKey, subscribeToTyping, setTypingStatus, editMessage, deleteMessage, markMessagesRead, initiateCall } from './chat.js';
+import { loadChatList, subscribeToMessages, sendMessage, renderChatView, attachChatEvents, emailKey, subscribeToTyping, setTypingStatus, editMessage, deleteMessage, markMessagesRead } from './chat.js';
 import { rtdb, ref, onValue } from './firebase.js';
 import { renderGamesView, attachGamesEvents } from './games.js';
 import { auth, signOut, onAuthStateChanged, updateProfile, db, doc, setDoc } from './firebase.js';
 import { initPushNotifications, subscribeUserToPush, unsubscribeUserFromPush, setCallNotificationHandler } from './push.js';
+import { initWebSocket, closeWebSocket, startCall, acceptCall, rejectCall, cancelCall, endCall, setOnIncomingCall, setOnCallEnded, toggleMute, toggleCamera, getCallState } from './call.js';
 
 let currentUser = null;
 let activeView = 'contacts';
@@ -71,6 +72,9 @@ function showDeviceSelect() {
 function enterApp(user) {
   currentUser = user;
   setCallNotificationHandler(handleCallNotification);
+  initWebSocket(user.email);
+  setOnIncomingCall(showIncomingCallDialog);
+  setOnCallEnded(handleCallEnded);
   initPushNotifications().then(() => subscribeUserToPush(user.email));
   const saved = localStorage.getItem('talk_device');
   if (saved) {
@@ -422,8 +426,120 @@ function handleSelectChat(email, name) {
 
 function handleCallNotification(msg) {
   if (!currentUser || !msg.from) return;
-  const contact = chatList.find(c => c.email === msg.from);
-  handleSelectChat(msg.from, contact?.name || msg.fromName || msg.from);
+  if (getCallState() === 'idle') {
+    showIncomingCallDialog({ from: msg.from, fromName: msg.fromName || msg.from, callType: msg.callType || 'audio' });
+  }
+}
+
+function showIncomingCallDialog(call) {
+  const existing = document.getElementById('incoming-call-overlay');
+  if (existing) existing.remove();
+
+  const overlay = document.createElement('div');
+  overlay.id = 'incoming-call-overlay';
+  overlay.className = 'call-overlay';
+  overlay.innerHTML = `
+    <div class="incoming-call-card">
+      <div class="call-avatar">${(call.fromName || call.from)[0]?.toUpperCase() || '?'}</div>
+      <div class="call-name">${call.fromName || call.from}</div>
+      <div class="call-type-label">Incoming ${call.callType === 'video' ? 'video' : 'audio'} call</div>
+      <div class="call-action-buttons">
+        <button class="call-btn reject" id="reject-call-btn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" transform="rotate(135 12 12)"/></svg>
+          <span>Decline</span>
+        </button>
+        <button class="call-btn accept" id="accept-call-btn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+          <span>Accept</span>
+        </button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+
+  document.getElementById('accept-call-btn').addEventListener('click', () => {
+    overlay.remove();
+    acceptCall();
+    showActiveCallScreen(call.fromName || call.from, call.callType, false);
+  });
+  document.getElementById('reject-call-btn').addEventListener('click', () => {
+    overlay.remove();
+    rejectCall();
+  });
+}
+
+function showActiveCallScreen(name, callType, isCaller) {
+  const existing = document.getElementById('active-call-overlay');
+  if (existing) existing.remove();
+
+  const isVideo = callType === 'video';
+  const overlay = document.createElement('div');
+  overlay.id = 'active-call-overlay';
+  overlay.className = 'call-overlay active-call-overlay';
+  overlay.innerHTML = `
+    <div class="active-call-screen">
+      <video id="call-remote-video" autoplay playsinline ${isVideo ? '' : 'style="display:none;"'}></video>
+      <video id="call-local-video" autoplay playsinline muted ${isVideo ? '' : 'style="display:none;"'}></video>
+      <audio id="call-remote-audio" autoplay></audio>
+      <audio id="call-local-audio" muted></audio>
+      <div class="call-info-overlay">
+        <div class="call-avatar large">${(name || '?')[0]?.toUpperCase() || '?'}</div>
+        <div class="call-name large">${name}</div>
+        <div class="call-status-text" id="call-status-text">${isCaller ? 'Calling...' : 'Connecting...'}</div>
+      </div>
+      <div class="call-controls">
+        <button class="call-control-btn" id="mute-btn" title="Mute">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+        </button>
+        ${isVideo ? `
+        <button class="call-control-btn" id="camera-btn" title="Camera">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+        </button>` : ''}
+        <button class="call-control-btn end" id="end-call-btn" title="End call">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" transform="rotate(135 12 12)"/></svg>
+        </button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+
+  const statusText = document.getElementById('call-status-text');
+  const statusInterval = setInterval(() => {
+    if (getCallState() === 'connected') {
+      statusText.textContent = 'Connected';
+      clearInterval(statusInterval);
+    }
+  }, 500);
+
+  document.getElementById('end-call-btn').addEventListener('click', () => {
+    clearInterval(statusInterval);
+    endCall();
+    overlay.remove();
+  });
+
+  const muteBtn = document.getElementById('mute-btn');
+  if (muteBtn) {
+    muteBtn.addEventListener('click', () => {
+      const muted = toggleMute();
+      muteBtn.classList.toggle('active', muted);
+    });
+  }
+
+  const cameraBtn = document.getElementById('camera-btn');
+  if (cameraBtn) {
+    cameraBtn.addEventListener('click', () => {
+      const off = toggleCamera();
+      cameraBtn.classList.toggle('active', off);
+    });
+  }
+}
+
+function handleCallEnded(reason) {
+  const incoming = document.getElementById('incoming-call-overlay');
+  if (incoming) incoming.remove();
+  const active = document.getElementById('active-call-overlay');
+  if (active) active.remove();
+  if (reason === 'media-error') {
+    alert('Call failed: could not access microphone or camera. Please check your browser permissions and try again.');
+  }
 }
 
 async function handleSendMessage(text) {
@@ -451,11 +567,15 @@ async function handleDeleteMessage(msgId) {
 
 async function handleCall(callType) {
   if (!activeChat) return;
-  const result = await initiateCall(currentUser, activeChat.email, callType);
+  if (getCallState() !== 'idle') {
+    alert('You are already in a call.');
+    return;
+  }
+  const result = await startCall(activeChat.email, callType);
   if (result.success) {
-    alert(`${callType === 'video' ? 'Video' : 'Audio'} call initiated to ${activeChat.name || activeChat.email}`);
+    showActiveCallScreen(activeChat.name || activeChat.email, callType, true);
   } else {
-    alert('Call failed. The recipient may be offline.');
+    alert('Call failed: ' + (result.error || 'The recipient may be offline.'));
   }
 }
 
