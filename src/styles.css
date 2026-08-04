@@ -796,13 +796,13 @@ a { color: var(--primary); text-decoration: none; }
 
 
 /* ===== Emoji picker ===== */
-.chat-emoji-btn, .chat-image-btn {
+.chat-emoji-btn {
   background: none; border: none; cursor: pointer; padding: 6px;
   color: var(--neutral-500, #666); display: flex; align-items: center;
   border-radius: 8px; transition: background 0.15s;
 }
-.chat-emoji-btn:hover, .chat-image-btn:hover { background: var(--neutral-100, #f0f0f0); }
-.chat-emoji-btn svg, .chat-image-btn svg { width: 22px; height: 22px; }
+.chat-emoji-btn:hover { background: var(--neutral-100, #f0f0f0); }
+.chat-emoji-btn svg { width: 22px; height: 22px; }
 .chat-emoji-picker {
   display: flex; flex-wrap: wrap; gap: 4px; padding: 12px;
   background: var(--surface, #fff); border-top: 1px solid var(--neutral-200, #e0e0e0);
@@ -813,12 +813,6 @@ a { color: var(--primary); text-decoration: none; }
   transition: background 0.1s;
 }
 .emoji-item:hover { background: var(--neutral-100, #f0f0f0); }
-
-/* ===== Chat image in bubble ===== */
-.chat-bubble-image {
-  max-width: 240px; max-height: 240px; border-radius: 10px;
-  display: block; margin-bottom: 4px; object-fit: cover;
-}
 
 /* ===== Group chat sidebar button ===== */
 .chat-sidebar-header-row {

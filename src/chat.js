@@ -73,7 +73,7 @@ export async function setTypingStatus(user, contactEmail, isTyping) {
   }
 }
 
-export async function sendMessage(user, contactEmail, text, image) {
+export async function sendMessage(user, contactEmail, text) {
   const cid = chatId(user.email, contactEmail);
   const messagesRef = ref(rtdb, `chats/${cid}/messages`);
   const newMsgRef = push(messagesRef);
@@ -85,13 +85,12 @@ export async function sendMessage(user, contactEmail, text, image) {
     createdAt: now,
     id: newMsgRef.key,
     status: 'sent',
-    readBy: [],
-    ...(image ? { image } : {})
+    readBy: []
   };
   await set(newMsgRef, msgData);
 
   const contactName = await getContactName(contactEmail);
-  const previewText = text || (image ? '📷 Photo' : '');
+  const previewText = text || '';
   const inboxEntry = {
     email: contactEmail,
     name: contactName || contactEmail,
@@ -324,14 +323,10 @@ export function renderChatView(chatList, activeChat, messages, user, deviceMode,
       <button class="chat-emoji-btn" id="chat-emoji-btn" title="Emoji">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>
       </button>
-      <button class="chat-image-btn" id="chat-image-btn" title="Send photo">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
-      </button>
       <input type="text" class="chat-input" id="chat-input" placeholder="Type a message..." />
       <button class="chat-send-btn" id="chat-send-btn">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
       </button>
-      <input type="file" id="chat-image-file" accept="image/*" style="display:none" />
     </div>
     <div class="chat-emoji-picker" id="chat-emoji-picker" style="display:none;"></div>
   </div>` : `
@@ -373,11 +368,8 @@ function renderMessageBubble(m, user) {
   const statusIcon = sent ? renderStatusIcon(m) : '';
   const editedMark = m.edited ? '<span class="chat-edited">edited</span>' : '';
   const escapedText = escapeHtml(m.text);
-  const imageHtml = m.image ? `<img src="${m.image}" class="chat-bubble-image" alt="photo" />` : '';
-
   return `
     <div class="chat-bubble ${sent ? 'sent' : 'received'}" data-msg-id="${m.id}" data-sender="${m.senderEmail}">
-      ${imageHtml}
       ${escapedText ? `<span class="chat-bubble-text">${escapedText}</span>` : ''}
       ${editedMark}
       <div class="chat-bubble-meta">
@@ -461,7 +453,7 @@ export function renderGroupModal(contacts) {
 const EMOJIS = ['😀','😄','😁','😂','🥰','😍','😘','😎','🤔','😅','😉','😇','🤗','🥳','😴','😭','😡','🤯','🥺','😱','👍','👎','👏','🙏','💪','🔥','✨','🎉','❤️','💔','💯','💬','📸','🌟','⭐','🌙','☀️','🌈','🍕','🍔','☕','🍺','🎵','🎮','⚽','🏀','🚗','✈️','🏠','🎁','💎','🔔','📌','✅','❌','⚡','🎯','🏆','💌','🌹'];
 
 export function attachChatEvents(handlers) {
-  const { onSelectChat, onSendMessage, onBack, onTyping, onEditMessage, onDeleteMessage, onCall, onSendImage, onCreateGroup } = handlers;
+  const { onSelectChat, onSendMessage, onBack, onTyping, onEditMessage, onDeleteMessage, onCall, onCreateGroup } = handlers;
 
   document.querySelectorAll('.chat-list-item').forEach(item => {
     item.addEventListener('click', () => {
@@ -568,23 +560,6 @@ export function attachChatEvents(handlers) {
         input.focus();
         emojiPicker.style.display = 'none';
       });
-    });
-  }
-
-  const imageBtn = document.getElementById('chat-image-btn');
-  const imageFile = document.getElementById('chat-image-file');
-  if (imageBtn && imageFile && onSendImage) {
-    imageBtn.addEventListener('click', () => imageFile.click());
-    imageFile.addEventListener('change', () => {
-      const file = imageFile.files[0];
-      if (!file) return;
-      if (file.size > 2 * 1024 * 1024) { alert('Image must be under 2MB'); imageFile.value = ''; return; }
-      const reader = new FileReader();
-      reader.onload = () => {
-        onSendImage(reader.result);
-        imageFile.value = '';
-      };
-      reader.readAsDataURL(file);
     });
   }
 

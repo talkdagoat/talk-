@@ -94,12 +94,6 @@ const ADMIN_NAME = 'Hriday';
 // ---------- File paths ----------
 const DATA_FILE = path.join(__dirname, 'data.json');
 const LEADERBOARD_FILE = path.join(__dirname, 'leaderboard.json');
-const UPLOADS_DIR = path.join(__dirname, 'uploads');
-
-// Ensure uploads dir exists
-(async () => {
-    try { await fs.mkdir(UPLOADS_DIR, { recursive: true }); } catch {}
-})();
 
 // ---------- Async file locking ----------
 let dataLock = Promise.resolve();
@@ -474,9 +468,9 @@ app.get('/api/messages/:email1/:email2', async (req, res) => {
 });
 
 app.post('/api/messages', async (req, res) => {
-    const { senderEmail, receiverEmail, text, fileData, fileName, fileType, voiceData, voiceDuration } = req.body || {};
+    const { senderEmail, receiverEmail, text, voiceData, voiceDuration } = req.body || {};
     if (!senderEmail || !receiverEmail) return res.status(400).json({ error: 'Sender and receiver required' });
-    if (!text && !fileData && !voiceData) return res.status(400).json({ error: 'Message content required' });
+    if (!text && !voiceData) return res.status(400).json({ error: 'Message content required' });
     const data = await readData();
     if (!data.users[senderEmail]) return res.status(404).json({ error: 'Sender not found' });
     if (receiverEmail !== AI_BOT_EMAIL && !data.users[receiverEmail]) {
@@ -488,7 +482,7 @@ app.post('/api/messages', async (req, res) => {
             return res.status(403).json({ error: 'Message blocked' });
         }
     }
-    const saved = await saveDirectMessage(senderEmail, receiverEmail, { text, fileData, fileName, fileType, voiceData, voiceDuration });
+    const saved = await saveDirectMessage(senderEmail, receiverEmail, { text, voiceData, voiceDuration });
     sendTo(receiverEmail, { type: 'message', message: saved });
     res.json({ success: true, message: saved });
 });
@@ -524,7 +518,6 @@ app.delete('/api/messages/:msgId', async (req, res) => {
             if (msgs[idx].senderEmail !== email) return res.status(403).json({ error: 'Not your message' });
             msgs[idx].deleted = true;
             msgs[idx].text = '';
-            msgs[idx].fileData = null;
             msgs[idx].voiceData = null;
             await writeData(data);
             const participants = key.split('_');
@@ -588,9 +581,6 @@ async function saveDirectMessage(senderEmail, receiverEmail, content) {
         id: newId(),
         senderEmail, receiverEmail,
         text: content.text || '',
-        fileData: content.fileData || null,
-        fileName: content.fileName || null,
-        fileType: content.fileType || null,
         voiceData: content.voiceData || null,
         voiceDuration: content.voiceDuration || null,
         timestamp: new Date().toISOString(),
@@ -708,15 +698,15 @@ app.get('/api/groups/:id/messages', async (req, res) => {
 
 app.post('/api/groups/:id/messages', async (req, res) => {
     const { id } = req.params;
-    const { senderEmail, text, fileData, fileName, fileType, voiceData, voiceDuration } = req.body || {};
+    const { senderEmail, text, voiceData, voiceDuration } = req.body || {};
     if (!senderEmail) return res.status(400).json({ error: 'senderEmail required' });
-    if (!text && !fileData && !voiceData) return res.status(400).json({ error: 'Message content required' });
+    if (!text && !voiceData) return res.status(400).json({ error: 'Message content required' });
     const data = await readData();
     const group = data.groups[id];
     if (!group) return res.status(404).json({ error: 'Group not found' });
     if (!userInGroup(group, senderEmail)) return res.status(403).json({ error: 'Not a member' });
     const sender = data.users[senderEmail];
-    const msg = await saveGroupMessage(group, senderEmail, sender?.name || senderEmail, { text, fileData, fileName, fileType, voiceData, voiceDuration });
+    const msg = await saveGroupMessage(group, senderEmail, sender?.name || senderEmail, { text, voiceData, voiceDuration });
     for (const m of group.members) sendTo(m, { type: 'group-message', message: msg });
     res.json({ success: true, message: msg });
 });
@@ -749,7 +739,6 @@ app.delete('/api/groups/:id/messages/:msgId', async (req, res) => {
     if (msgs[idx].senderEmail !== email) return res.status(403).json({ error: 'Not your message' });
     msgs[idx].deleted = true;
     msgs[idx].text = '';
-    msgs[idx].fileData = null;
     msgs[idx].voiceData = null;
     await writeData(data);
     const group = data.groups[id];
@@ -785,9 +774,6 @@ async function saveGroupMessage(group, senderEmail, senderName, content) {
         senderEmail,
         senderName,
         text: content.text || '',
-        fileData: content.fileData || null,
-        fileName: content.fileName || null,
-        fileType: content.fileType || null,
         voiceData: content.voiceData || null,
         voiceDuration: content.voiceDuration || null,
         timestamp: new Date().toISOString(),
@@ -959,74 +945,11 @@ app.get('/api/calls/:email', async (req, res) => {
     res.json({ calls });
 });
 
-// ---------- File Upload (local storage + GitHub Gist fallback) ----------
-const GITHUB_PAT = process.env.GITHUB_PAT_TOKEN || '';
-
-async function uploadToGitHubGist(fileName, content) {
-    if (!GITHUB_PAT) return null;
-    try {
-        const res = await fetch('https://api.github.com/gists', {
-            method: 'POST',
-            headers: {
-                'Authorization': 'token ' + GITHUB_PAT,
-                'Content-Type': 'application/json',
-                'User-Agent': 'TalkApp',
-            },
-            body: JSON.stringify({
-                description: 'Talk app file: ' + fileName,
-                public: false,
-                files: { [fileName]: { content } }
-            })
-        });
-        if (!res.ok) return null;
-        const data = await res.json();
-        return data.html_url || null;
-    } catch { return null; }
-}
-
-app.post('/api/upload', async (req, res) => {
-    try {
-        const { fileName, fileType, fileData } = req.body || {};
-        if (!fileName || !fileData) return res.status(400).json({ error: 'fileName and fileData required' });
-        
-        // Check size (base64 is ~4/3 of binary size)
-        const approxSize = Math.round((fileData.length * 3) / 4);
-        const MAX_SIZE = 100 * 1024 * 1024; // 100MB
-        if (approxSize > MAX_SIZE) return res.status(413).json({ error: 'File too large (max 100MB)' });
-        
-        // Try GitHub Gist first if PAT is configured
-        if (GITHUB_PAT && approxSize <= 10 * 1024 * 1024) {
-            const base64Content = fileData.split(',')[1] || fileData;
-            const gistUrl = await uploadToGitHubGist(fileName, base64Content);
-            if (gistUrl) {
-                return res.json({ success: true, url: gistUrl, fileName, fileType, source: 'github' });
-            }
-        }
-        
-        // Fallback to local storage
-        const ext = path.extname(fileName) || '';
-        const safeName = Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8) + ext;
-        const filePath = path.join(UPLOADS_DIR, safeName);
-        
-        const buffer = Buffer.from(fileData.split(',')[1] || fileData, 'base64');
-        await fs.writeFile(filePath, buffer);
-        
-        const downloadUrl = '/uploads/' + safeName;
-        res.json({ success: true, url: downloadUrl, fileName, fileType, source: 'local' });
-    } catch (err) {
-        console.error('Upload error:', err);
-        res.status(500).json({ error: 'Upload failed' });
-    }
-});
-
-// Serve uploaded files
-app.use('/uploads', express.static(UPLOADS_DIR));
-
 // ---------- Admin download ----------
 app.get('/api/admin/download', (req, res) => {
     const { password } = req.query;
     if (password !== ADMIN_PASSWORD) return res.status(403).json({ error: 'Invalid admin password' });
-    const EXCLUDE = new Set(['node_modules', '.git', '.cache', '.local', '.upm', '.replit', 'replit.nix', 'uploads']);
+    const EXCLUDE = new Set(['node_modules', '.git', '.cache', '.local', '.upm', '.replit', 'replit.nix', ]);
     const EXT_OK = new Set(['.js', '.html', '.css', '.json', '.md', '.txt', '.nix', '.sh', '.ts', '.jsx', '.tsx']);
     function collectFiles(dir, base) {
         let out = [];
@@ -1136,7 +1059,7 @@ app.use(express.static(serveDir, {
 }));
 // SPA fallback: serve index.html for any non-API route
 app.get('*', (req, res, next) => {
-    if (req.path.startsWith('/api/') || req.path.startsWith('/uploads/') || req.path.startsWith('/ws')) return next();
+    if (req.path.startsWith('/api/') || req.path.startsWith('/ws')) return next();
     res.sendFile(path.join(serveDir, 'index.html'));
 });
 
@@ -1187,7 +1110,7 @@ wss.on('connection', (ws) => {
         if (msg.type === 'message' && msg.to) {
             const data = await readData();
             if (msg.to !== AI_BOT_EMAIL && !data.users[msg.to]) return;
-            const saved = await saveDirectMessage(ws.email, msg.to, { text: msg.text, fileData: msg.fileData, fileName: msg.fileName, fileType: msg.fileType, voiceData: msg.voiceData, voiceDuration: msg.voiceDuration });
+            const saved = await saveDirectMessage(ws.email, msg.to, { text: msg.text, voiceData: msg.voiceData, voiceDuration: msg.voiceDuration });
             const out = { type: 'message', message: saved };
             sendTo(msg.to, out);
             sendTo(ws.email, out);
@@ -1199,7 +1122,7 @@ wss.on('connection', (ws) => {
             const group = data.groups[msg.groupId];
             if (!group || !userInGroup(group, ws.email)) return;
             const sender = data.users[ws.email];
-            const saved = await saveGroupMessage(group, ws.email, sender?.name || ws.email, { text: msg.text, fileData: msg.fileData, fileName: msg.fileName, fileType: msg.fileType, voiceData: msg.voiceDuration });
+            const saved = await saveGroupMessage(group, ws.email, sender?.name || ws.email, { text: msg.text, voiceData: msg.voiceDuration });
             for (const m of group.members) sendTo(m, { type: 'group-message', message: saved });
             return;
         }

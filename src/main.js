@@ -418,7 +418,6 @@ function renderChat() {
     onEditMessage: handleEditMessage,
     onDeleteMessage: handleDeleteMessage,
     onCall: handleCall,
-    onSendImage: handleSendImage,
     onCreateGroup: openGroupModal
   });
   chatRendered = true;
@@ -685,11 +684,6 @@ function openGroupModal() {
 async function handleSendMessage(text) {
   if (!activeChat) return;
   await sendMessage(currentUser, activeChat.email, text);
-}
-
-async function handleSendImage(imageDataUrl) {
-  if (!activeChat) return;
-  await sendMessage(currentUser, activeChat.email, '', imageDataUrl);
 }
 
 async function handleTyping(isTyping) {
