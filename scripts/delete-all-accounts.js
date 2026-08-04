@@ -36,12 +36,12 @@ const credentialPath = process.env.FIREBASE_ADMIN_CREDENTIAL_PATH;
 if (credentialPath) {
   const serviceAccount = require(credentialPath);
   admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount),
+    credential: admin.cert(serviceAccount),
     projectId: serviceAccount.project_id,
   });
 } else if (clientEmail && privateKey) {
   admin.initializeApp({
-    credential: admin.credential.cert({
+    credential: admin.cert({
       projectId,
       clientEmail,
       privateKey: privateKey.replace(/\\n/g, '\n'),
@@ -56,8 +56,10 @@ if (credentialPath) {
   process.exit(1);
 }
 
-const auth = admin.auth();
-const db = admin.firestore();
+const { getAuth } = require('firebase-admin/auth');
+const { getFirestore } = require('firebase-admin/firestore');
+const auth = getAuth();
+const db = getFirestore();
 
 async function deleteAllAccounts() {
   // --- Step 1: List all Firebase Auth users ---
