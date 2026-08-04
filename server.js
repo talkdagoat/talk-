@@ -7,6 +7,8 @@ const fs = require('fs').promises;
 const path = require('path');
 const { promisify } = require('util');
 const webpush = require('web-push');
+const nodemailer = require('nodemailer');
+const crypto = require('crypto');
 
 const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY || 'BOGXp8jvbyBgFGZID7pLXjeQS6_RSDreXHxqDR1p8vfSDpWfQdSOnz58ebQEk11Dg1DmIlbTtf22ZRXocv1NdvY';
 const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY || 'hn2dxeOoHeHuC2-0EfKspalSnfYbWd5b4SdaClAiqBk';
@@ -40,6 +42,44 @@ async function sendPushToUser(email, payload) {
     subs[email] = userSubs.filter(s => !failed.includes(s));
     await writePushSubs(subs);
   }
+}
+
+const SMTP_EMAIL = process.env.SMTP_EMAIL || 'robogod50@gmail.com';
+const SMTP_PASSWORD = process.env.SMTP_PASSWORD || '';
+const APP_BASE_URL = process.env.APP_BASE_URL || 'http://localhost:5000';
+
+const emailTransporter = SMTP_PASSWORD
+    ? nodemailer.createTransport({
+        service: 'gmail',
+        auth: { user: SMTP_EMAIL, pass: SMTP_PASSWORD }
+    })
+    : null;
+
+const emailVerifyTokens = new Map();
+
+async function sendVerificationEmail(toEmail, displayName) {
+    if (!emailTransporter) {
+        console.warn('SMTP not configured — skipping verification email to', toEmail);
+        return { success: false, error: 'Email service not configured' };
+    }
+    const token = crypto.randomBytes(32).toString('hex');
+    emailVerifyTokens.set(toEmail.toLowerCase(), { token, expires: Date.now() + 86400000 });
+    const verifyUrl = `${APP_BASE_URL}/api/verify-email?email=${encodeURIComponent(toEmail)}&token=${token}`;
+    const mailOptions = {
+        from: `"Talk App" <${SMTP_EMAIL}>`,
+        to: toEmail,
+        subject: 'Verify your Talk account',
+        html: `
+            <div style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto;padding:24px;">
+                <h2 style="color:#1a73e8;">Welcome to Talk${displayName ? ', ' + displayName : ''}!</h2>
+                <p>Please verify your email address to complete your registration.</p>
+                <a href="${verifyUrl}" style="display:inline-block;background:#1a73e8;color:#fff;padding:12px 28px;border-radius:8px;text-decoration:none;font-size:16px;margin:16px 0;">Verify Email</a>
+                <p style="color:#666;font-size:13px;">Or copy this link: ${verifyUrl}</p>
+                <p style="color:#999;font-size:12px;">This link expires in 24 hours.</p>
+            </div>`
+    };
+    await emailTransporter.sendMail(mailOptions);
+    return { success: true };
 }
 
 const PORT = process.env.PORT || 5000;
@@ -884,9 +924,14 @@ app.post('/api/call/initiate', async (req, res) => {
     const { fromEmail, fromName, toEmail, callType } = req.body || {};
     if (!fromEmail || !toEmail) return res.status(400).json({ error: 'fromEmail and toEmail required' });
     const data = await readData();
-    if (!data.users[toEmail]) return res.status(404).json({ error: 'Recipient not found' });
     const fromNameResolved = fromName || data.users[fromEmail]?.name || fromEmail;
     const cType = callType === 'video' ? 'video' : 'audio';
+    // Ensure caller exists in local data so call history can be recorded
+    if (!data.users[fromEmail]) {
+        data.users[fromEmail] = { id: newId(), name: fromNameResolved, email: fromEmail, avatar: null, status: 'available', contacts: [], blocked: [], createdAt: new Date().toISOString() };
+        await writeData(data);
+    }
+    // Send push notification (works even if recipient isn't in local data — they may be a Firebase-only user)
     sendPushToUser(toEmail, {
         title: 'Incoming ' + cType + ' call',
         body: fromNameResolved + ' is calling you',
@@ -1035,6 +1080,50 @@ app.post('/api/push/unsubscribe', async (req, res) => {
     await writePushSubs(subs);
   }
   res.json({ ok: true });
+});
+
+app.post('/api/send-verification', async (req, res) => {
+    const { email, name } = req.body || {};
+    if (!email) return res.status(400).json({ error: 'Email required' });
+    try {
+        const result = await sendVerificationEmail(email, name);
+        if (!result.success) return res.status(503).json({ error: result.error });
+        res.json({ success: true, message: 'Verification email sent' });
+    } catch (err) {
+        console.error('send-verification error:', err.message);
+        res.status(500).json({ error: 'Failed to send verification email' });
+    }
+});
+
+app.get('/api/verify-email', async (req, res) => {
+    const { email, token } = req.query || {};
+    if (!email || !token) return res.status(400).send('Missing email or token');
+    const stored = emailVerifyTokens.get(email.toLowerCase());
+    if (!stored || stored.token !== token) {
+        return res.status(400).send('Invalid or expired verification link');
+    }
+    if (Date.now() > stored.expires) {
+        emailVerifyTokens.delete(email.toLowerCase());
+        return res.status(400).send('This verification link has expired. Please request a new one.');
+    }
+    emailVerifyTokens.delete(email.toLowerCase());
+    const data = await readData();
+    if (data.users[email]) {
+        data.users[email].emailVerified = true;
+        await writeData(data);
+    }
+    res.send(`<div style="font-family:Arial,sans-serif;text-align:center;padding:48px;">
+        <h2 style="color:#1a73e8;">Email Verified!</h2>
+        <p>Your Talk account email has been verified. You can now close this tab and sign in.</p>
+    </div>`);
+});
+
+app.get('/api/check-verified', async (req, res) => {
+    const { email } = req.query || {};
+    if (!email) return res.status(400).json({ error: 'Email required' });
+    const data = await readData();
+    const user = data.users[email];
+    res.json({ verified: !!(user && user.emailVerified) });
 });
 
 app.get('/api/push/vapid-public', (req, res) => {

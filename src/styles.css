@@ -793,3 +793,91 @@ a { color: var(--primary); text-decoration: none; }
 .call-control-btn.end:hover { background: #b91c1c; }
 .call-control-btn svg { width: 24px; height: 24px; }
 .call-control-btn.end svg { width: 28px; height: 28px; }
+
+
+/* ===== Emoji picker ===== */
+.chat-emoji-btn, .chat-image-btn {
+  background: none; border: none; cursor: pointer; padding: 6px;
+  color: var(--neutral-500, #666); display: flex; align-items: center;
+  border-radius: 8px; transition: background 0.15s;
+}
+.chat-emoji-btn:hover, .chat-image-btn:hover { background: var(--neutral-100, #f0f0f0); }
+.chat-emoji-btn svg, .chat-image-btn svg { width: 22px; height: 22px; }
+.chat-emoji-picker {
+  display: flex; flex-wrap: wrap; gap: 4px; padding: 12px;
+  background: var(--surface, #fff); border-top: 1px solid var(--neutral-200, #e0e0e0);
+  max-height: 200px; overflow-y: auto;
+}
+.emoji-item {
+  font-size: 22px; cursor: pointer; padding: 4px 6px; border-radius: 6px;
+  transition: background 0.1s;
+}
+.emoji-item:hover { background: var(--neutral-100, #f0f0f0); }
+
+/* ===== Chat image in bubble ===== */
+.chat-bubble-image {
+  max-width: 240px; max-height: 240px; border-radius: 10px;
+  display: block; margin-bottom: 4px; object-fit: cover;
+}
+
+/* ===== Group chat sidebar button ===== */
+.chat-sidebar-header-row {
+  display: flex; align-items: center; justify-content: space-between;
+}
+.new-group-btn {
+  background: none; border: none; cursor: pointer; padding: 6px;
+  color: var(--primary, #1a73e8); border-radius: 8px;
+  display: flex; align-items: center; transition: background 0.15s;
+}
+.new-group-btn:hover { background: var(--neutral-100, #f0f0f0); }
+.new-group-btn svg { width: 22px; height: 22px; }
+
+/* ===== Group creation modal ===== */
+.group-modal-card { max-width: 420px; }
+.group-modal-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 16px 20px; border-bottom: 1px solid var(--neutral-200, #e0e0e0);
+}
+.group-modal-header h3 { margin: 0; font-size: 18px; }
+.group-modal-body { padding: 20px; }
+.group-name-input {
+  width: 100%; padding: 10px 12px; border: 1px solid var(--neutral-300, #ccc);
+  border-radius: 8px; font-size: 15px; box-sizing: border-box; margin-bottom: 16px;
+}
+.group-members-label {
+  font-size: 13px; color: var(--neutral-500, #666); margin-bottom: 8px;
+}
+.group-members-list {
+  max-height: 220px; overflow-y: auto; border: 1px solid var(--neutral-200, #e0e0e0);
+  border-radius: 8px; padding: 4px;
+}
+.group-member-item {
+  display: flex; align-items: center; gap: 10px; padding: 8px 10px;
+  cursor: pointer; border-radius: 6px; transition: background 0.1s;
+}
+.group-member-item:hover { background: var(--neutral-100, #f0f0f0); }
+.group-member-item input { margin: 0; }
+.group-member-avatar {
+  width: 32px; height: 32px; border-radius: 50%;
+  background: var(--primary, #1a73e8); color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px; font-weight: 600;
+}
+.group-member-name { font-size: 14px; }
+.group-modal-footer {
+  display: flex; justify-content: flex-end; gap: 10px;
+  padding: 16px 20px; border-top: 1px solid var(--neutral-200, #e0e0e0);
+}
+
+/* ===== Profile modal danger zone ===== */
+.profile-modal-danger {
+  padding: 0 20px 20px; text-align: center;
+}
+.profile-modal-delete {
+  background: none; border: 1px solid #e53935; color: #e53935;
+  padding: 8px 20px; border-radius: 8px; cursor: pointer;
+  font-size: 14px; transition: all 0.15s;
+}
+.profile-modal-delete:hover {
+  background: #e53935; color: #fff;
+}

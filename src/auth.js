@@ -86,7 +86,7 @@ export async function saveUserToDb(user) {
   return userData;
 }
 
-export function attachAuthEvents(onAuthSuccess) {
+export function attachAuthEvents(onAuthSuccess, onNewSignup) {
   let mode = 'login';
   const form = document.getElementById('auth-form');
   const submitBtn = document.getElementById('auth-submit');
@@ -160,7 +160,18 @@ export function attachAuthEvents(onAuthSuccess) {
         const cred = await createUserWithEmailAndPassword(auth, email, password);
         await updateProfile(cred.user, { displayName: name });
         const userData = await saveUserToDb(cred.user);
-        onAuthSuccess(userData);
+        try {
+          await fetch('/api/send-verification', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, name })
+          });
+        } catch {}
+        if (onNewSignup) {
+          onNewSignup(email, userData);
+        } else {
+          onAuthSuccess(userData);
+        }
       } else {
         const cred = await signInWithEmailAndPassword(auth, email, password);
         const userData = await saveUserToDb(cred.user);
@@ -180,7 +191,7 @@ export function attachAuthEvents(onAuthSuccess) {
   });
 }
 
-function attachVerifyEvents(email, onAuthSuccess) {
+export function attachVerifyEvents(email, onAuthSuccess) {
   const checkBtn = document.getElementById('check-verified-btn');
   const resendBtn = document.getElementById('resend-verify-btn');
   const backLink = document.getElementById('verify-back-link');
@@ -190,13 +201,17 @@ function attachVerifyEvents(email, onAuthSuccess) {
   checkBtn.addEventListener('click', async () => {
     errorEl.textContent = '';
     try {
-      const user = auth.currentUser;
-      if (!user) { errorEl.textContent = 'Session expired. Please sign in again.'; return; }
-      await user.reload();
-      if (user.emailVerified) {
+      const res = await fetch('/api/check-verified?email=' + encodeURIComponent(email));
+      const result = await res.json();
+      if (result.verified) {
         successEl.textContent = 'Email verified! Signing you in...';
-        const userData = await saveUserToDb(user);
-        onAuthSuccess(userData);
+        const user = auth.currentUser;
+        if (user) {
+          const userData = await saveUserToDb(user);
+          onAuthSuccess(userData);
+        } else {
+          successEl.textContent = 'Email verified! Please sign in.';
+        }
       } else {
         errorEl.textContent = 'Email not verified yet. Click the link in your email first.';
       }
@@ -207,11 +222,18 @@ function attachVerifyEvents(email, onAuthSuccess) {
 
   resendBtn.addEventListener('click', async () => {
     errorEl.textContent = '';
+    successEl.textContent = '';
     try {
-      const user = auth.currentUser;
-      if (user) {
-        await sendEmailVerification(user);
+      const res = await fetch('/api/send-verification', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email })
+      });
+      const result = await res.json();
+      if (result.success) {
         successEl.textContent = 'Verification email resent!';
+      } else {
+        errorEl.textContent = result.error || 'Failed to resend';
       }
     } catch (err) {
       errorEl.textContent = err.message;

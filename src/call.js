@@ -136,6 +136,21 @@ function handleWsMessage(msg) {
 export function setOnIncomingCall(cb) { onIncomingCallCb = cb; }
 export function setOnCallEnded(cb) { onCallEndedCb = cb; }
 
+export function initIncomingCallFromPush(call) {
+  if (callState !== 'idle') return false;
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
+    initWebSocket(call.to || userEmail);
+  }
+  callState = 'receiving';
+  currentCall = {
+    from: call.from,
+    fromName: call.fromName || call.from,
+    callType: call.callType || 'audio',
+    isCaller: false
+  };
+  return true;
+}
+
 export async function startCall(toEmail, callType) {
   if (callState !== 'idle') return { success: false, error: 'Already in a call' };
   callState = 'calling';

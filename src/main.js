@@ -1,12 +1,12 @@
 import { renderLanding, attachLandingEvents } from './landing.js';
-import { renderAuth, attachAuthEvents, saveUserToDb } from './auth.js';
+import { renderAuth, attachAuthEvents, saveUserToDb, renderVerify, attachVerifyEvents } from './auth.js';
 import { loadContacts, addContact, removeContact, renderContactsView, attachContactsEvents, loadTalkUsers, renderTalkUsersDirectory, attachDirectoryEvents } from './contacts.js';
-import { loadChatList, subscribeToMessages, sendMessage, renderChatView, renderChatListHtml, renderMessagesHtml, attachChatEvents, emailKey, subscribeToTyping, setTypingStatus, editMessage, deleteMessage, markMessagesRead } from './chat.js';
+import { loadChatList, subscribeToMessages, sendMessage, renderChatView, renderChatListHtml, renderMessagesHtml, attachChatEvents, emailKey, subscribeToTyping, setTypingStatus, editMessage, deleteMessage, markMessagesRead, renderGroupModal } from './chat.js';
 import { rtdb, ref, onValue } from './firebase.js';
 import { renderGamesView, attachGamesEvents } from './games.js';
 import { auth, signOut, onAuthStateChanged, updateProfile, db, doc, setDoc } from './firebase.js';
 import { initPushNotifications, subscribeUserToPush, unsubscribeUserFromPush, setCallNotificationHandler } from './push.js';
-import { initWebSocket, closeWebSocket, startCall, acceptCall, rejectCall, cancelCall, endCall, setOnIncomingCall, setOnCallEnded, toggleMute, toggleCamera, getCallState } from './call.js';
+import { initWebSocket, closeWebSocket, startCall, acceptCall, rejectCall, cancelCall, endCall, setOnIncomingCall, setOnCallEnded, toggleMute, toggleCamera, getCallState, initIncomingCallFromPush } from './call.js';
 
 let currentUser = null;
 let activeView = 'contacts';
@@ -33,7 +33,18 @@ function showLanding() {
 
 function showAuth() {
   app.innerHTML = renderAuth();
-  attachAuthEvents(enterApp);
+  attachAuthEvents(enterApp, (email) => {
+    suppressAuthChange = true;
+    showVerifyScreen(email);
+  });
+}
+
+function showVerifyScreen(email) {
+  app.innerHTML = renderVerify(email);
+  attachVerifyEvents(email, (userData) => {
+    suppressAuthChange = false;
+    enterApp(userData);
+  });
 }
 
 function showDeviceSelect() {
@@ -193,6 +204,9 @@ function openProfileModal() {
         <button class="profile-modal-cancel" id="profile-cancel">Cancel</button>
         <button class="profile-modal-save" id="profile-save">Save</button>
       </div>
+      <div class="profile-modal-danger">
+        <button class="profile-modal-delete" id="profile-delete">Delete My Account</button>
+      </div>
     </div>`;
   document.body.appendChild(modal);
 
@@ -214,6 +228,25 @@ function openProfileModal() {
   document.getElementById('profile-close').addEventListener('click', close);
   document.getElementById('profile-cancel').addEventListener('click', close);
   modal.addEventListener('click', (e) => { if (e.target === modal) close(); });
+
+  document.getElementById('profile-delete').addEventListener('click', async () => {
+    const confirmed = confirm('Are you sure you want to permanently delete your account? This cannot be undone.');
+    if (!confirmed) return;
+    const doubleConfirmed = confirm('This will permanently erase all your data, contacts, and messages. Type DELETE to continue?');
+    if (!doubleConfirmed) return;
+    try {
+      const res = await fetch('/api/users/' + encodeURIComponent(currentUser.email) + '/delete-account', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      if (!res.ok) throw new Error('Failed to delete account');
+      try { await signOut(auth); } catch {}
+      try { await unsubscribeUserFromPush(currentUser.email); } catch {}
+      location.reload();
+    } catch (err) {
+      alert('Failed to delete account: ' + err.message);
+    }
+  });
 
   document.getElementById('profile-save').addEventListener('click', async () => {
     const name = nameInput.value.trim() || currentUser.email.split('@')[0];
@@ -384,7 +417,9 @@ function renderChat() {
     onTyping: handleTyping,
     onEditMessage: handleEditMessage,
     onDeleteMessage: handleDeleteMessage,
-    onCall: handleCall
+    onCall: handleCall,
+    onSendImage: handleSendImage,
+    onCreateGroup: openGroupModal
   });
   chatRendered = true;
   scrollChatToBottom();
@@ -493,7 +528,14 @@ function handleSelectChat(email, name) {
 function handleCallNotification(msg) {
   if (!currentUser || !msg.from) return;
   if (getCallState() === 'idle') {
-    showIncomingCallDialog({ from: msg.from, fromName: msg.fromName || msg.from, callType: msg.callType || 'audio' });
+    const initialized = initIncomingCallFromPush({
+      from: msg.from,
+      fromName: msg.fromName || msg.from,
+      callType: msg.callType || 'audio'
+    });
+    if (initialized) {
+      showIncomingCallDialog({ from: msg.from, fromName: msg.fromName || msg.from, callType: msg.callType || 'audio' });
+    }
   }
 }
 
@@ -608,9 +650,46 @@ function handleCallEnded(reason) {
   }
 }
 
+function openGroupModal() {
+  const existing = document.getElementById('group-modal');
+  if (existing) existing.remove();
+  const modal = document.createElement('div');
+  modal.innerHTML = renderGroupModal(contacts || []);
+  document.body.appendChild(modal.firstElementChild);
+  const modalEl = document.getElementById('group-modal');
+  const close = () => modalEl.remove();
+  document.getElementById('group-close').addEventListener('click', close);
+  document.getElementById('group-cancel').addEventListener('click', close);
+  modalEl.addEventListener('click', (e) => { if (e.target === modalEl) close(); });
+  document.getElementById('group-create').addEventListener('click', async () => {
+    const name = document.getElementById('group-name-input').value.trim();
+    if (!name) { alert('Please enter a group name'); return; }
+    const checked = document.querySelectorAll('#group-members-list input[type=checkbox]:checked');
+    const members = Array.from(checked).map(cb => cb.value);
+    if (members.length < 1) { alert('Select at least one member'); return; }
+    try {
+      const res = await fetch('/api/groups', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, members, createdBy: currentUser.email })
+      });
+      if (!res.ok) throw new Error('Failed to create group');
+      close();
+      renderChat();
+    } catch (err) {
+      alert('Failed to create group: ' + err.message);
+    }
+  });
+}
+
 async function handleSendMessage(text) {
   if (!activeChat) return;
   await sendMessage(currentUser, activeChat.email, text);
+}
+
+async function handleSendImage(imageDataUrl) {
+  if (!activeChat) return;
+  await sendMessage(currentUser, activeChat.email, '', imageDataUrl);
 }
 
 async function handleTyping(isTyping) {
@@ -650,7 +729,10 @@ function scrollChatToBottom() {
   if (msgs) msgs.scrollTop = msgs.scrollHeight;
 }
 
+let suppressAuthChange = false;
+
 onAuthStateChanged(auth, async (user) => {
+  if (suppressAuthChange) return;
   if (user) {
     const userData = await saveUserToDb(user);
     enterApp(userData);

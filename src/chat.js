@@ -73,33 +73,35 @@ export async function setTypingStatus(user, contactEmail, isTyping) {
   }
 }
 
-export async function sendMessage(user, contactEmail, text) {
+export async function sendMessage(user, contactEmail, text, image) {
   const cid = chatId(user.email, contactEmail);
   const messagesRef = ref(rtdb, `chats/${cid}/messages`);
   const newMsgRef = push(messagesRef);
   const now = Date.now();
   const msgData = {
-    text,
+    text: text || '',
     sender: user.uid,
     senderEmail: user.email,
     createdAt: now,
     id: newMsgRef.key,
     status: 'sent',
-    readBy: []
+    readBy: [],
+    ...(image ? { image } : {})
   };
   await set(newMsgRef, msgData);
 
   const contactName = await getContactName(contactEmail);
+  const previewText = text || (image ? '📷 Photo' : '');
   const inboxEntry = {
     email: contactEmail,
     name: contactName || contactEmail,
-    lastMessage: text,
+    lastMessage: previewText,
     lastAt: now
   };
   const reverseEntry = {
     email: user.email,
     name: user.name || user.email,
-    lastMessage: text,
+    lastMessage: previewText,
     lastAt: now
   };
 
@@ -215,7 +217,12 @@ export function renderChatListHtml(chatList, activeEmail) {
   return `
   <div class="chat-sidebar">
     <div class="chat-sidebar-header">
-      <h3>Conversations</h3>
+      <div class="chat-sidebar-header-row">
+        <h3>Conversations</h3>
+        <button class="new-group-btn" id="new-group-btn" title="Create group">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>
+        </button>
+      </div>
       <input type="text" class="contacts-search" id="chat-search" placeholder="Search..." style="margin-top:8px;" />
     </div>
     <div class="chat-list" id="chat-list">
@@ -256,7 +263,12 @@ export function renderChatView(chatList, activeChat, messages, user, deviceMode,
   const sidebarHtml = `
   <div class="chat-sidebar">
     <div class="chat-sidebar-header">
-      <h3>Conversations</h3>
+      <div class="chat-sidebar-header-row">
+        <h3>Conversations</h3>
+        <button class="new-group-btn" id="new-group-btn" title="Create group">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>
+        </button>
+      </div>
       <input type="text" class="contacts-search" id="chat-search" placeholder="Search..." style="margin-top:8px;" />
     </div>
     <div class="chat-list" id="chat-list">
@@ -309,11 +321,19 @@ export function renderChatView(chatList, activeChat, messages, user, deviceMode,
       <span></span><span></span><span></span>
     </div>
     <div class="chat-input-bar">
+      <button class="chat-emoji-btn" id="chat-emoji-btn" title="Emoji">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>
+      </button>
+      <button class="chat-image-btn" id="chat-image-btn" title="Send photo">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+      </button>
       <input type="text" class="chat-input" id="chat-input" placeholder="Type a message..." />
       <button class="chat-send-btn" id="chat-send-btn">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
       </button>
+      <input type="file" id="chat-image-file" accept="image/*" style="display:none" />
     </div>
+    <div class="chat-emoji-picker" id="chat-emoji-picker" style="display:none;"></div>
   </div>` : `
   <div class="chat-empty">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
@@ -353,10 +373,12 @@ function renderMessageBubble(m, user) {
   const statusIcon = sent ? renderStatusIcon(m) : '';
   const editedMark = m.edited ? '<span class="chat-edited">edited</span>' : '';
   const escapedText = escapeHtml(m.text);
+  const imageHtml = m.image ? `<img src="${m.image}" class="chat-bubble-image" alt="photo" />` : '';
 
   return `
     <div class="chat-bubble ${sent ? 'sent' : 'received'}" data-msg-id="${m.id}" data-sender="${m.senderEmail}">
-      <span class="chat-bubble-text">${escapedText}</span>
+      ${imageHtml}
+      ${escapedText ? `<span class="chat-bubble-text">${escapedText}</span>` : ''}
       ${editedMark}
       <div class="chat-bubble-meta">
         <span class="chat-bubble-time">${formatTime(m.createdAt)}</span>
@@ -406,8 +428,40 @@ function formatTime(ts) {
   return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
+
+export function renderGroupModal(contacts) {
+  return `
+  <div class="modal-overlay" id="group-modal">
+    <div class="modal-card group-modal-card">
+      <div class="group-modal-header">
+        <h3>Create Group</h3>
+        <button class="profile-modal-close" id="group-close">&times;</button>
+      </div>
+      <div class="group-modal-body">
+        <input type="text" class="group-name-input" id="group-name-input" placeholder="Group name" maxlength="60" />
+        <div class="group-members-label">Select members</div>
+        <div class="group-members-list" id="group-members-list">
+          ${contacts.map(c => `
+            <label class="group-member-item">
+              <input type="checkbox" value="${c.email}" data-name="${c.name || c.email}" />
+              <span class="group-member-avatar">${(c.name || c.email)[0].toUpperCase()}</span>
+              <span class="group-member-name">${c.name || c.email}</span>
+            </label>
+          `).join('')}
+        </div>
+      </div>
+      <div class="group-modal-footer">
+        <button class="profile-modal-cancel" id="group-cancel">Cancel</button>
+        <button class="profile-modal-save" id="group-create">Create Group</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+const EMOJIS = ['😀','😄','😁','😂','🥰','😍','😘','😎','🤔','😅','😉','😇','🤗','🥳','😴','😭','😡','🤯','🥺','😱','👍','👎','👏','🙏','💪','🔥','✨','🎉','❤️','💔','💯','💬','📸','🌟','⭐','🌙','☀️','🌈','🍕','🍔','☕','🍺','🎵','🎮','⚽','🏀','🚗','✈️','🏠','🎁','💎','🔔','📌','✅','❌','⚡','🎯','🏆','💌','🌹'];
+
 export function attachChatEvents(handlers) {
-  const { onSelectChat, onSendMessage, onBack, onTyping, onEditMessage, onDeleteMessage, onCall } = handlers;
+  const { onSelectChat, onSendMessage, onBack, onTyping, onEditMessage, onDeleteMessage, onCall, onSendImage, onCreateGroup } = handlers;
 
   document.querySelectorAll('.chat-list-item').forEach(item => {
     item.addEventListener('click', () => {
@@ -499,6 +553,44 @@ export function attachChatEvents(handlers) {
   const videoCallBtn = document.getElementById('video-call-btn');
   if (videoCallBtn && onCall) {
     videoCallBtn.addEventListener('click', () => onCall('video'));
+  }
+
+  const emojiBtn = document.getElementById('chat-emoji-btn');
+  const emojiPicker = document.getElementById('chat-emoji-picker');
+  if (emojiBtn && emojiPicker && input) {
+    emojiPicker.innerHTML = EMOJIS.map(e => `<span class="emoji-item">${e}</span>`).join('');
+    emojiBtn.addEventListener('click', () => {
+      emojiPicker.style.display = emojiPicker.style.display === 'none' ? 'flex' : 'none';
+    });
+    emojiPicker.querySelectorAll('.emoji-item').forEach(item => {
+      item.addEventListener('click', () => {
+        input.value += item.textContent;
+        input.focus();
+        emojiPicker.style.display = 'none';
+      });
+    });
+  }
+
+  const imageBtn = document.getElementById('chat-image-btn');
+  const imageFile = document.getElementById('chat-image-file');
+  if (imageBtn && imageFile && onSendImage) {
+    imageBtn.addEventListener('click', () => imageFile.click());
+    imageFile.addEventListener('change', () => {
+      const file = imageFile.files[0];
+      if (!file) return;
+      if (file.size > 2 * 1024 * 1024) { alert('Image must be under 2MB'); imageFile.value = ''; return; }
+      const reader = new FileReader();
+      reader.onload = () => {
+        onSendImage(reader.result);
+        imageFile.value = '';
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  const newGroupBtn = document.getElementById('new-group-btn');
+  if (newGroupBtn && onCreateGroup) {
+    newGroupBtn.addEventListener('click', () => onCreateGroup());
   }
 }
 
