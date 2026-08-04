@@ -1,7 +1,7 @@
 import { renderLanding, attachLandingEvents } from './landing.js';
 import { renderAuth, attachAuthEvents, saveUserToDb } from './auth.js';
 import { loadContacts, addContact, removeContact, renderContactsView, attachContactsEvents, loadTalkUsers, renderTalkUsersDirectory, attachDirectoryEvents } from './contacts.js';
-import { loadChatList, subscribeToMessages, sendMessage, renderChatView, attachChatEvents, emailKey, subscribeToTyping, setTypingStatus, editMessage, deleteMessage, markMessagesRead } from './chat.js';
+import { loadChatList, subscribeToMessages, sendMessage, renderChatView, renderChatListHtml, renderMessagesHtml, attachChatEvents, emailKey, subscribeToTyping, setTypingStatus, editMessage, deleteMessage, markMessagesRead } from './chat.js';
 import { rtdb, ref, onValue } from './firebase.js';
 import { renderGamesView, attachGamesEvents } from './games.js';
 import { auth, signOut, onAuthStateChanged, updateProfile, db, doc, setDoc } from './firebase.js';
@@ -276,6 +276,7 @@ async function switchView(view) {
   } else if (view === 'chat') {
     title.textContent = 'Chat';
     chatList = await loadChatList(currentUser, contacts);
+    chatRendered = false;
     renderChat();
     subscribeToInbox();
   } else if (view === 'games') {
@@ -367,6 +368,8 @@ function backToChatList() {
   renderChat();
 }
 
+let chatRendered = false;
+
 function renderChat() {
   const content = document.getElementById('main-content');
   content.innerHTML = renderChatView(chatList, activeChat, chatMessages, currentUser, deviceMode, { isTyping: isPeerTyping });
@@ -379,7 +382,66 @@ function renderChat() {
     onDeleteMessage: handleDeleteMessage,
     onCall: handleCall
   });
+  chatRendered = true;
   scrollChatToBottom();
+}
+
+function updateChatList() {
+  if (!chatRendered) return;
+  const sidebar = document.querySelector('.chat-sidebar');
+  if (!sidebar) return;
+  const searchInput = document.getElementById('chat-search');
+  const searchVal = searchInput ? searchInput.value : '';
+  sidebar.outerHTML = renderChatListHtml(chatList, activeChat?.email);
+  const newSearch = document.getElementById('chat-search');
+  if (newSearch && searchVal) newSearch.value = searchVal;
+  document.querySelectorAll('.chat-list-item').forEach(item => {
+    item.addEventListener('click', () => {
+      handleSelectChat(item.dataset.email, item.dataset.name);
+    });
+  });
+  if (newSearch) {
+    newSearch.addEventListener('input', () => {
+      const q = newSearch.value.toLowerCase();
+      document.querySelectorAll('.chat-list-item').forEach(item => {
+        const name = item.dataset.name.toLowerCase();
+        const email = item.dataset.email.toLowerCase();
+        item.style.display = (name.includes(q) || email.includes(q)) ? '' : 'none';
+      });
+    });
+  }
+}
+
+function updateMessages() {
+  if (!chatRendered || !activeChat) return;
+  const msgContainer = document.getElementById('chat-messages');
+  if (!msgContainer) return;
+  const wasNearBottom = msgContainer.scrollHeight - msgContainer.scrollTop - msgContainer.clientHeight < 100;
+  msgContainer.innerHTML = renderMessagesHtml(chatMessages, currentUser);
+  if (wasNearBottom) scrollChatToBottom();
+  document.querySelectorAll('.chat-msg-action-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const action = btn.dataset.action;
+      const msgId = btn.dataset.msgId;
+      if (action === 'edit') {
+        handleEditMessage(msgId, btn.dataset.text || '');
+      } else if (action === 'delete') {
+        handleDeleteMessage(msgId);
+      }
+    });
+  });
+}
+
+function updateTypingIndicator() {
+  if (!chatRendered || !activeChat) return;
+  const indicator = document.getElementById('chat-typing-indicator');
+  const status = document.getElementById('chat-header-status');
+  if (indicator) indicator.style.display = isPeerTyping ? 'flex' : 'none';
+  if (status) {
+    status.classList.toggle('typing', isPeerTyping);
+    status.textContent = isPeerTyping ? 'typing...' : '';
+  }
 }
 
 function subscribeToInbox() {
@@ -402,7 +464,7 @@ function subscribeToInbox() {
     });
     chats.sort((a, b) => (b.lastAt || 0) - (a.lastAt || 0));
     chatList = chats;
-    renderChat();
+    updateChatList();
   });
 }
 
@@ -414,12 +476,12 @@ function handleSelectChat(email, name) {
   chatMessages = [];
   chatUnsub = subscribeToMessages(currentUser, email, (msgs) => {
     chatMessages = msgs;
-    renderChat();
+    updateMessages();
     markMessagesRead(currentUser, email);
   });
   typingUnsub = subscribeToTyping(currentUser, email, (isTyping) => {
     isPeerTyping = isTyping;
-    renderChat();
+    updateTypingIndicator();
   });
   renderChat();
 }

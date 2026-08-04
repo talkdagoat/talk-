@@ -193,6 +193,39 @@ export async function initiateCall(user, contactEmail, callType) {
   }
 }
 
+export function renderChatListHtml(chatList, activeEmail) {
+  let sidebarItems = [...chatList];
+  if (activeEmail && !chatList.find(c => c.email === activeEmail)) {
+    sidebarItems.unshift({ email: activeEmail, name: activeEmail, lastMessage: '', lastAt: 0 });
+  }
+  return `
+  <div class="chat-sidebar">
+    <div class="chat-sidebar-header">
+      <h3>Conversations</h3>
+      <input type="text" class="contacts-search" id="chat-search" placeholder="Search..." style="margin-top:8px;" />
+    </div>
+    <div class="chat-list" id="chat-list">
+      ${sidebarItems.length === 0 ? '<div style="padding:24px;text-align:center;color:var(--neutral-400);font-size:14px;">No conversations yet</div>' : ''}
+      ${sidebarItems.map(c => {
+        const initial = (c.name || c.email)[0].toUpperCase();
+        const preview = c.lastMessage ? escapeHtml(c.lastMessage).slice(0, 40) : '';
+        return `
+        <div class="chat-list-item ${activeEmail === c.email ? 'active' : ''}" data-email="${c.email}" data-name="${c.name || c.email}">
+          <div class="chat-list-avatar">${initial}</div>
+          <div class="chat-list-info">
+            <div class="chat-list-name">${c.name || c.email}</div>
+            ${preview ? `<div class="chat-list-preview">${preview}</div>` : ''}
+          </div>
+        </div>`;
+      }).join('')}
+    </div>
+  </div>`;
+}
+
+export function renderMessagesHtml(messages, user) {
+  return renderMessageList(messages, user);
+}
+
 export function renderChatView(chatList, activeChat, messages, user, deviceMode, typingStatus) {
   const activeEmail = activeChat?.email;
   const activeName = activeChat?.name || activeEmail || '';
@@ -455,4 +488,4 @@ export function attachChatEvents(handlers) {
   }
 }
 
-export { chatId, emailKey };
+export { chatId, emailKey, renderMessageList };
