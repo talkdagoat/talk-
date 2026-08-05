@@ -1,6 +1,7 @@
 /**
  * WARNING: THIS SCRIPT IS IRREVERSIBLE.
- * It deletes ALL Firebase Authentication users and ALL Firestore user documents.
+ * It deletes ALL Firebase Authentication users, ALL Firestore documents,
+ * and ALL Realtime Database data.
  * Only run this if you are absolutely sure you want to wipe everything.
  *
  * Requirements:
@@ -19,9 +20,6 @@
  *   3. Save the JSON file securely
  *
  * Usage:
- *   node scripts/delete-all-accounts.js
- *
- * Or with the JSON file:
  *   FIREBASE_ADMIN_CREDENTIAL_PATH=./service-account.json node scripts/delete-all-accounts.js
  */
 
@@ -38,6 +36,7 @@ if (credentialPath) {
   admin.initializeApp({
     credential: admin.cert(serviceAccount),
     projectId: serviceAccount.project_id,
+    databaseURL: 'https://talkapp55-default-rtdb.asia-southeast1.firebasedatabase.app',
   });
 } else if (clientEmail && privateKey) {
   admin.initializeApp({
@@ -46,6 +45,7 @@ if (credentialPath) {
       clientEmail,
       privateKey: privateKey.replace(/\\n/g, '\n'),
     }),
+    databaseURL: 'https://talkapp55-default-rtdb.asia-southeast1.firebasedatabase.app',
   });
 } else {
   console.error(
@@ -58,8 +58,10 @@ if (credentialPath) {
 
 const { getAuth } = require('firebase-admin/auth');
 const { getFirestore } = require('firebase-admin/firestore');
+const { getDatabase } = require('firebase-admin/database');
 const auth = getAuth();
 const db = getFirestore();
+const rtdb = getDatabase();
 
 async function deleteAllAccounts() {
   // --- Step 1: List all Firebase Auth users ---
@@ -74,15 +76,16 @@ async function deleteAllAccounts() {
   } while (pageToken);
 
   console.log(`Found ${userRecords.length} user(s) in Firebase Auth.`);
+  for (const u of userRecords) console.log('  ', u.email);
 
-  // --- Step 2: Delete all Firestore documents from user-related collections ---
-  // Common collections that store per-user data
-  const userCollections = ['users'];
+  // --- Step 2: Delete all Firestore documents from ALL collections ---
+  console.log('\nScanning Firestore collections...');
+  const allCollections = await db.listCollections();
   let firestoreDeleted = 0;
 
-  for (const collectionName of userCollections) {
-    console.log(`Deleting all documents from Firestore collection: ${collectionName}`);
-    const snapshot = await db.collection(collectionName).get();
+  for (const col of allCollections) {
+    console.log(`Deleting all documents from Firestore collection: ${col.id}`);
+    const snapshot = await col.get();
     const batchSize = 400;
     const docs = snapshot.docs;
 
@@ -93,28 +96,30 @@ async function deleteAllAccounts() {
         batch.delete(doc.ref);
       }
       await batch.commit();
-      console.log(`  Deleted ${Math.min(i + batchSize, docs.length)}/${docs.length} from ${collectionName}`);
     }
+    console.log(`  Deleted ${docs.length} document(s) from ${col.id}`);
     firestoreDeleted += docs.length;
   }
 
-  // Also check for any other collections that might contain user data
-  console.log('Scanning for other collections...');
-  const allCollections = await db.listCollections();
-  for (const col of allCollections) {
-    if (!userCollections.includes(col.id)) {
-      console.log(`  Found collection: ${col.id} — scanning for user documents...`);
-      const snap = await col.get();
-      if (!snap.empty) {
-        console.log(`  Collection ${col.id} has ${snap.size} documents. Review manually if needed.`);
-      }
+  console.log(`Deleted ${firestoreDeleted} Firestore document(s) total.`);
+
+  // --- Step 3: Delete all Realtime Database data ---
+  console.log('\nClearing Realtime Database...');
+  const rtdbSnap = await rtdb.ref().once('value');
+  const rtdbVal = rtdbSnap.val();
+  if (rtdbVal) {
+    const keys = Object.keys(rtdbVal);
+    console.log('RTDB top-level keys:', keys.join(', '));
+    for (const key of keys) {
+      await rtdb.ref(key).remove();
+      console.log(`  Removed RTDB key: ${key}`);
     }
+  } else {
+    console.log('RTDB is already empty.');
   }
 
-  console.log(`Deleted ${firestoreDeleted} Firestore document(s).`);
-
-  // --- Step 3: Delete all Firebase Auth users ---
-  console.log('Deleting all Firebase Auth users...');
+  // --- Step 4: Delete all Firebase Auth users ---
+  console.log('\nDeleting all Firebase Auth users...');
   const uids = userRecords.map(u => u.uid);
 
   for (let i = 0; i < uids.length; i += 1000) {
@@ -128,7 +133,21 @@ async function deleteAllAccounts() {
     }
   }
 
-  console.log(`\nDone! Deleted ${uids.length} Firebase Auth user(s) and ${firestoreDeleted} Firestore document(s).`);
+  // --- Step 5: Verify everything is gone ---
+  console.log('\n--- VERIFICATION ---');
+  const verifyAuth = await auth.listUsers(1000);
+  const verifyCollections = await db.listCollections();
+  let verifyFsCount = 0;
+  for (const col of verifyCollections) {
+    const snap = await col.get();
+    verifyFsCount += snap.size;
+  }
+  const verifyRtdb = await rtdb.ref().once('value');
+  console.log('Auth users remaining:', verifyAuth.users.length);
+  console.log('Firestore documents remaining:', verifyFsCount);
+  console.log('RTDB remaining:', verifyRtdb.val() ? JSON.stringify(Object.keys(verifyRtdb.val())) : 'empty');
+
+  console.log(`\nDone! Deleted ${uids.length} Firebase Auth user(s), ${firestoreDeleted} Firestore document(s), and all RTDB data.`);
   console.log('WARNING: This action was irreversible. All user data has been permanently removed.');
 }
 

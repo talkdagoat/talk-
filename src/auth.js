@@ -137,6 +137,11 @@ export function attachAuthEvents(onAuthSuccess, onNewSignup) {
     googleBtn.disabled = true;
     try {
       const result = await signInWithPopup(auth, googleProvider);
+      if (!result.user.emailVerified) {
+        errorEl.textContent = 'Your Google account email is not verified. Please verify it in your Google account settings first.';
+        await signOut(auth);
+        return;
+      }
       const userData = await saveUserToDb(result.user);
       onAuthSuccess(userData);
     } catch (err) {
@@ -175,6 +180,15 @@ export function attachAuthEvents(onAuthSuccess, onNewSignup) {
         }
       } else {
         const cred = await signInWithEmailAndPassword(auth, email, password);
+        if (!cred.user.emailVerified) {
+          if (onNewSignup) {
+            onNewSignup(email);
+          } else {
+            errorEl.textContent = 'Please verify your email before signing in. Check your inbox for the verification link.';
+            await signOut(auth);
+          }
+          return;
+        }
         const userData = await saveUserToDb(cred.user);
         onAuthSuccess(userData);
       }

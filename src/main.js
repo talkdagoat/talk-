@@ -728,6 +728,11 @@ let suppressAuthChange = false;
 onAuthStateChanged(auth, async (user) => {
   if (suppressAuthChange) return;
   if (user) {
+    if (!user.emailVerified) {
+      suppressAuthChange = true;
+      showVerifyScreen(user.email);
+      return;
+    }
     const userData = await saveUserToDb(user);
     enterApp(userData);
   } else {
