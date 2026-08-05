@@ -6,6 +6,7 @@ import {
   collection, doc, setDoc, getDoc,
   ref, set as rtdbSet
 } from './firebase.js';
+import { getOrCreateKeyPair } from './crypto.js';
 
 export function renderAuth() {
   return `
@@ -76,12 +77,21 @@ export async function saveUserToDb(user) {
     photoURL: user.photoURL || null,
     createdAt: new Date().toISOString()
   };
+
+  let publicKeyB64 = null;
+  try {
+    const keyPair = await getOrCreateKeyPair();
+    publicKeyB64 = keyPair.publicKeyB64;
+    userData.publicKey = publicKeyB64;
+  } catch {}
+
   await setDoc(userRef, userData, { merge: true });
   try {
     await rtdbSet(ref(rtdb, 'users/' + user.uid), {
       email: user.email,
       name: user.displayName || user.email.split('@')[0],
-      photoURL: user.photoURL || null
+      photoURL: user.photoURL || null,
+      publicKey: publicKeyB64
     });
   } catch {}
   return userData;

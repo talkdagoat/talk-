@@ -2,6 +2,7 @@ import {
   rtdb, ref, push, set, get, rtdbQuery,
   orderByChild, limitToLast, onValue, remove, update, rtdbServerTimestamp
 } from './firebase.js';
+import { encryptMessage, decryptMessage, encryptPreview, decryptPreview, getOrCreateKeyPair } from './crypto.js';
 
 const MESSAGE_LIMIT = 50;
 const SIX_MONTHS_MS = 180 * 24 * 60 * 60 * 1000;
@@ -12,6 +13,61 @@ function emailKey(email) {
 
 function chatId(email1, email2) {
   return [emailKey(email1), emailKey(email2)].sort().join('__');
+}
+
+// --- E2EE helpers ---
+
+let myPrivateKey = null;
+const publicKeyCache = new Map();
+
+/**
+ * Initialize E2EE — called once after login to load the private key.
+ */
+export async function initCrypto() {
+  const keyPair = await getOrCreateKeyPair();
+  myPrivateKey = keyPair.privateKey;
+  return keyPair;
+}
+
+/**
+ * Fetch a user's public key from RTDB by their email.
+ * Cached after first fetch.
+ */
+async function getPublicKeyByEmail(email) {
+  const lowerEmail = (email || '').toLowerCase();
+  if (publicKeyCache.has(lowerEmail)) return publicKeyCache.get(lowerEmail);
+  const usersRef = ref(rtdb, 'users');
+  const snap = await get(usersRef);
+  let pubKey = null;
+  if (snap.exists()) {
+    snap.forEach((child) => {
+      const data = child.val();
+      if ((data.email || '').toLowerCase() === lowerEmail) {
+        pubKey = data.publicKey || null;
+      }
+    });
+  }
+  if (pubKey) publicKeyCache.set(lowerEmail, pubKey);
+  return pubKey;
+}
+
+/**
+ * Decrypt a list of messages in place. Returns a new array with decrypted text.
+ */
+async function decryptMessages(messages, contactEmail) {
+  if (!myPrivateKey) return messages;
+  const theirPubKey = await getPublicKeyByEmail(contactEmail);
+  if (!theirPubKey) return messages;
+  return Promise.all(messages.map(async (m) => {
+    if (m.deleted || !m.encrypted) return m;
+    try {
+      const payload = { ciphertext: m.ciphertext, iv: m.iv };
+      const plaintext = await decryptMessage(payload, theirPubKey, myPrivateKey);
+      return { ...m, text: plaintext || '[Unable to decrypt]' };
+    } catch {
+      return { ...m, text: '[Unable to decrypt]' };
+    }
+  }));
 }
 
 export async function loadChatList(user, contacts) {
@@ -33,6 +89,20 @@ export async function loadChatList(user, contacts) {
     }
   });
   chats.sort((a, b) => (b.lastAt || 0) - (a.lastAt || 0));
+
+  if (myPrivateKey) {
+    for (const c of chats) {
+      if (c.lastMessage) {
+        try {
+          const theirPubKey = await getPublicKeyByEmail(c.email);
+          if (theirPubKey) {
+            c.lastMessage = await decryptPreview(c.lastMessage, theirPubKey, myPrivateKey);
+          }
+        } catch {}
+      }
+    }
+  }
+
   return chats;
 }
 
@@ -41,12 +111,13 @@ export function subscribeToMessages(user, contactEmail, callback) {
   const messagesRef = ref(rtdb, `chats/${cid}/messages`);
   const q = rtdbQuery(messagesRef, orderByChild('createdAt'), limitToLast(MESSAGE_LIMIT));
 
-  return onValue(q, (snap) => {
+  return onValue(q, async (snap) => {
     const messages = [];
     snap.forEach((child) => {
       messages.push({ id: child.key, ...child.val() });
     });
-    callback(messages);
+    const decrypted = await decryptMessages(messages, contactEmail);
+    callback(decrypted);
   });
 }
 
@@ -78,8 +149,24 @@ export async function sendMessage(user, contactEmail, text) {
   const messagesRef = ref(rtdb, `chats/${cid}/messages`);
   const newMsgRef = push(messagesRef);
   const now = Date.now();
+
+  let encryptedPayload = null;
+  let previewEncrypted = text || '';
+  if (myPrivateKey && text) {
+    try {
+      const theirPubKey = await getPublicKeyByEmail(contactEmail);
+      if (theirPubKey) {
+        encryptedPayload = await encryptMessage(text, theirPubKey, myPrivateKey);
+        previewEncrypted = await encryptPreview(text, theirPubKey, myPrivateKey);
+      }
+    } catch {}
+  }
+
   const msgData = {
-    text: text || '',
+    text: encryptedPayload ? '' : (text || ''),
+    encrypted: !!encryptedPayload,
+    ciphertext: encryptedPayload?.ciphertext || null,
+    iv: encryptedPayload?.iv || null,
     sender: user.uid,
     senderEmail: user.email,
     createdAt: now,
@@ -90,17 +177,16 @@ export async function sendMessage(user, contactEmail, text) {
   await set(newMsgRef, msgData);
 
   const contactName = await getContactName(contactEmail);
-  const previewText = text || '';
   const inboxEntry = {
     email: contactEmail,
     name: contactName || contactEmail,
-    lastMessage: previewText,
+    lastMessage: previewEncrypted,
     lastAt: now
   };
   const reverseEntry = {
     email: user.email,
     name: user.name || user.email,
-    lastMessage: previewText,
+    lastMessage: previewEncrypted,
     lastAt: now
   };
 
@@ -154,7 +240,24 @@ export async function editMessage(user, contactEmail, msgId, newText) {
   if (!snap.exists()) return;
   const msg = snap.val();
   if (msg.senderEmail !== user.email) return;
-  await update(msgRef, { text: newText, edited: true });
+
+  let encryptedPayload = null;
+  if (myPrivateKey && newText) {
+    try {
+      const theirPubKey = await getPublicKeyByEmail(contactEmail);
+      if (theirPubKey) {
+        encryptedPayload = await encryptMessage(newText, theirPubKey, myPrivateKey);
+      }
+    } catch {}
+  }
+
+  await update(msgRef, {
+    text: encryptedPayload ? '' : newText,
+    encrypted: !!encryptedPayload,
+    ciphertext: encryptedPayload?.ciphertext || null,
+    iv: encryptedPayload?.iv || null,
+    edited: true
+  });
 }
 
 export async function deleteMessage(user, contactEmail, msgId) {
@@ -164,7 +267,7 @@ export async function deleteMessage(user, contactEmail, msgId) {
   if (!snap.exists()) return;
   const msg = snap.val();
   if (msg.senderEmail !== user.email) return;
-  await update(msgRef, { deleted: true, text: '' });
+  await update(msgRef, { deleted: true, text: '', ciphertext: null, iv: null, encrypted: false });
 }
 
 export async function markMessagesRead(user, contactEmail) {

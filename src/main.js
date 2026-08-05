@@ -1,7 +1,7 @@
 import { renderLanding, attachLandingEvents } from './landing.js';
 import { renderAuth, attachAuthEvents, saveUserToDb, renderVerify, attachVerifyEvents } from './auth.js';
 import { loadContacts, addContact, removeContact, renderContactsView, attachContactsEvents, loadTalkUsers, renderTalkUsersDirectory, attachDirectoryEvents } from './contacts.js';
-import { loadChatList, subscribeToMessages, sendMessage, renderChatView, renderChatListHtml, renderMessagesHtml, attachChatEvents, emailKey, subscribeToTyping, setTypingStatus, editMessage, deleteMessage, markMessagesRead, renderGroupModal } from './chat.js';
+import { loadChatList, subscribeToMessages, sendMessage, renderChatView, renderChatListHtml, renderMessagesHtml, attachChatEvents, emailKey, subscribeToTyping, setTypingStatus, editMessage, deleteMessage, markMessagesRead, renderGroupModal, initCrypto } from './chat.js';
 import { rtdb, ref, onValue } from './firebase.js';
 import { renderGamesView, attachGamesEvents } from './games.js';
 import { auth, signOut, onAuthStateChanged, updateProfile, db, doc, setDoc } from './firebase.js';
@@ -87,6 +87,7 @@ function enterApp(user) {
   setOnIncomingCall(showIncomingCallDialog);
   setOnCallEnded(handleCallEnded);
   initPushNotifications().then(() => subscribeUserToPush(user.email));
+  initCrypto().catch(() => {});
   const saved = localStorage.getItem('talk_device');
   if (saved) {
     deviceMode = saved;

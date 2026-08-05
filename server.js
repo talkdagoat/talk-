@@ -1269,6 +1269,16 @@ app.get('/api/config', (req, res) => {
     });
 });
 
+// E2EE HKDF salt — served to the client for key derivation.
+// The salt is set via the E2EE_HKDF_SALT env var. It is mixed into the
+// HKDF key derivation alongside the ECDH shared secret. Rotating the salt
+// invalidates all previously encrypted messages (forcing re-key), so only
+// rotate if you accept that old messages become undecryptable.
+app.get('/api/e2ee-salt', (req, res) => {
+    const salt = process.env.E2EE_HKDF_SALT || 'c+Wt71uGNBRtquI8yfDC6SK2j1YN2vMe3zEnjz5vGYY=';
+    res.json({ salt });
+});
+
 // Start server
 (async () => {
     await ensureAdmin();
