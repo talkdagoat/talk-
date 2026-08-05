@@ -211,11 +211,27 @@ function openMindHeist(){
 window.location.href = 'https://mind-heist.onrender.com'
 }
 function openArcade() {
-  window.location.href = "https://talkdagoat.github.io/Space-shooter/"
+  openHtmlGame('/games/index_(2).html', 'Space Shooter');
 }
 function openJump() {
-  window.location.href = "https://talkdagoat.github.io/Gap-jumper/"
+  openHtmlGame('/games/index_(1).html', 'Gap Jumper');
 }
 function openDodger() {
-  window.location.href = "https://talkdagoat.github.io/Dodger/"
+  openHtmlGame('/games/index.html', 'Dodger');
 }
+
+function openHtmlGame(gamePath, title) {
+  const overlay = document.createElement('div');
+  overlay.className = 'game-modal-overlay';
+  overlay.innerHTML = `
+  <div class="game-modal" style="max-width:520px;">
+    <div class="game-modal-header">
+      <h2>${title}</h2>
+      <button class="game-modal-close" id="htmlgame-close">&times;</button>
+    </div>
+    <iframe src="${gamePath}" style="width:100%;height:600px;border:none;border-radius:8px;background:#0a0a1a;" allow="fullscreen"></iframe>
+  </div>`;
+  document.body.appendChild(overlay);
+  document.getElementById('htmlgame-close').addEventListener('click', () => overlay.remove());
+}
+

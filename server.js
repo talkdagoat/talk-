@@ -4,11 +4,31 @@ const cors = require('cors');
 const bodyParser = require('body-parser');
 const { WebSocketServer } = require('ws');
 const fs = require('fs').promises;
+const fsSync = require('fs');
 const path = require('path');
 const { promisify } = require('util');
 const webpush = require('web-push');
 const nodemailer = require('nodemailer');
 const crypto = require('crypto');
+
+// ---------- Firebase Admin SDK (for email verification updates) ----------
+const admin = require('firebase-admin');
+const { getAuth: getAdminAuth } = require('firebase-admin/auth');
+const SERVICE_ACCOUNT_PATH = path.join(__dirname, 'src', 'talkapp55-firebase-adminsdk-fbsvc-44c0ccdcaa.json');
+let adminAuth = null;
+try {
+  if (fsSync.existsSync(SERVICE_ACCOUNT_PATH)) {
+    const serviceAccount = require(SERVICE_ACCOUNT_PATH);
+    admin.initializeApp({
+      credential: admin.cert(serviceAccount),
+      projectId: serviceAccount.project_id,
+      databaseURL: 'https://talkapp55-default-rtdb.asia-southeast1.firebasedatabase.app'
+    });
+    adminAuth = getAdminAuth();
+  }
+} catch (err) {
+  console.warn('Firebase Admin SDK not initialized:', err.message);
+}
 
 const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY || 'BOGXp8jvbyBgFGZID7pLXjeQS6_RSDreXHxqDR1p8vfSDpWfQdSOnz58ebQEk11Dg1DmIlbTtf22ZRXocv1NdvY';
 const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY || 'hn2dxeOoHeHuC2-0EfKspalSnfYbWd5b4SdaClAiqBk';
@@ -1030,20 +1050,46 @@ app.get('/api/verify-email', async (req, res) => {
         return res.status(400).send('This verification link has expired. Please request a new one.');
     }
     emailVerifyTokens.delete(email.toLowerCase());
+
+    // Update Firebase Auth to mark email as verified
+    if (adminAuth) {
+        try {
+            const userRecord = await adminAuth.getUserByEmail(email);
+            if (!userRecord.emailVerified) {
+                await adminAuth.updateUser(userRecord.uid, { emailVerified: true });
+            }
+        } catch (err) {
+            console.error('Failed to update Firebase Auth emailVerified:', err.message);
+        }
+    }
+
     const data = await readData();
     if (data.users[email]) {
         data.users[email].emailVerified = true;
         await writeData(data);
     }
-    res.send(`<div style="font-family:Arial,sans-serif;text-align:center;padding:48px;">
-        <h2 style="color:#1a73e8;">Email Verified!</h2>
-        <p>Your Talk account email has been verified. You can now close this tab and sign in.</p>
-    </div>`);
+    res.send(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Email Verified</title><style>body{font-family:system-ui,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;background:#0f172a;color:#fff;text-align:center;}h1{color:#4ade80;font-size:2em;}p{color:#94a3b8;font-size:1.1em;}a{display:inline-block;margin-top:20px;padding:12px 28px;background:#6264a7;color:#fff;border-radius:8px;text-decoration:none;font-weight:600;}</style></head><body><div><h1>✓ Email Verified!</h1><p>Your email has been verified. You can now sign in to Talk.</p><a href="/">Go to Talk</a></div></body></html>`);
 });
 
 app.get('/api/check-verified', async (req, res) => {
     const { email } = req.query || {};
     if (!email) return res.status(400).json({ error: 'Email required' });
+
+    // Check Firebase Auth first (authoritative source)
+    if (adminAuth) {
+        try {
+            const userRecord = await adminAuth.getUserByEmail(email);
+            if (userRecord.emailVerified) {
+                const data = await readData();
+                if (data.users[email] && !data.users[email].emailVerified) {
+                    data.users[email].emailVerified = true;
+                    await writeData(data);
+                }
+                return res.json({ verified: true });
+            }
+        } catch {}
+    }
+
     const data = await readData();
     const user = data.users[email];
     res.json({ verified: !!(user && user.emailVerified) });

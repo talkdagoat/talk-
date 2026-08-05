@@ -226,11 +226,15 @@ export function attachVerifyEvents(email, onAuthSuccess) {
   checkBtn.addEventListener('click', async () => {
     errorEl.textContent = '';
     try {
+      // Force Firebase Auth to reload the user's profile so emailVerified is fresh
+      const user = auth.currentUser;
+      if (user) {
+        try { await user.reload(); } catch {}
+      }
       const res = await fetch('/api/check-verified?email=' + encodeURIComponent(email));
       const result = await res.json();
       if (result.verified) {
         successEl.textContent = 'Email verified! Signing you in...';
-        const user = auth.currentUser;
         if (user) {
           const userData = await saveUserToDb(user);
           onAuthSuccess(userData);

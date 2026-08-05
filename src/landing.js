@@ -21,7 +21,7 @@ export function renderLanding(onGetStarted) {
       </div>
       <div class="landing-hero-stats">
         <div class="landing-hero-stat"><div class="landing-hero-stat-num">4</div><div class="landing-hero-stat-label">Sections</div></div>
-        <div class="landing-hero-stat"><div class="landing-hero-stat-num">2</div><div class="landing-hero-stat-label">Games</div></div>
+        <div class="landing-hero-stat"><div class="landing-hero-stat-num">5</div><div class="landing-hero-stat-label">Games</div></div>
         <div class="landing-hero-stat"><div class="landing-hero-stat-num">100%</div><div class="landing-hero-stat-label">Free</div></div>
       </div>
     </div>
@@ -106,7 +106,7 @@ export function renderLanding(onGetStarted) {
     <div class="landing-section-header">
       <span class="landing-section-tag">Games</span>
       <h2>Play between conversations</h2>
-      <p>Take a break with two classic games built right in. No leaderboard, no pressure — just play.</p>
+      <p>Take a break with five games built right in. No pressure — just play.</p>
     </div>
     <div class="landing-features">
       <div class="feature-card">
@@ -118,6 +118,21 @@ export function renderLanding(onGetStarted) {
         <div class="feature-card-icon sky">🃏</div>
         <h3>Memory Match</h3>
         <p>Flip cards and find matching pairs. Track your moves and time as you improve your memory.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-card-icon sky">🚀</div>
+        <h3>Space Shooter</h3>
+        <p>Blast through waves of alien invaders and rack up points in this arcade classic.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-card-icon green">👾</div>
+        <h3>Gap Jumper</h3>
+        <p>Time your jumps perfectly to clear the gaps and go the distance.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-card-icon blue">🕹️</div>
+        <h3>Dodger</h3>
+        <p>Dodge the red blocks, collect yellow coins, and survive as long as you can.</p>
       </div>
     </div>
   </section>
