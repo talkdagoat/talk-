@@ -19,6 +19,23 @@ export async function initPushNotifications() {
   }
 }
 
+export function getNotificationPermission() {
+  if (!('Notification' in window)) return 'unsupported';
+  return Notification.permission;
+}
+
+export async function ensureNotificationPermission() {
+  if (!('Notification' in window)) return 'unsupported';
+  if (Notification.permission === 'granted') return 'granted';
+  if (Notification.permission === 'denied') return 'denied';
+  try {
+    const result = await Notification.requestPermission();
+    return result;
+  } catch {
+    return 'denied';
+  }
+}
+
 function handleMessage(event) {
   const msg = event.data || {};
   if (msg.type === 'call-notification' && onCallNotification) onCallNotification(msg);

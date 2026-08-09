@@ -716,6 +716,40 @@ a { color: var(--primary); text-decoration: none; }
 .app-user-avatar.clickable { cursor: pointer; transition: transform 0.15s, box-shadow 0.15s; }
 .app-user-avatar.clickable:hover { transform: scale(1.05); box-shadow: var(--shadow); }
 
+/* ===== Notification banner ===== */
+.notif-banner {
+  position: fixed; bottom: 16px; left: 16px; right: 16px; z-index: 250;
+  background: var(--surface, #1e293b); border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 16px; padding: 14px 16px; box-shadow: 0 12px 40px rgba(0,0,0,0.35);
+  animation: slideUp 0.3s; max-width: 480px; margin: 0 auto;
+}
+.notif-banner-content {
+  display: flex; align-items: center; gap: 12px;
+}
+.notif-banner-icon {
+  flex-shrink: 0; width: 40px; height: 40px; border-radius: 12px;
+  background: var(--primary-light, #e0e7ff); color: var(--primary, #6366f1);
+  display: flex; align-items: center; justify-content: center;
+}
+.notif-banner-icon svg { width: 22px; height: 22px; }
+.notif-banner-text { flex: 1; min-width: 0; }
+.notif-banner-title { font-size: 15px; font-weight: 700; color: var(--text-primary, #f1f5f9); }
+.notif-banner-desc { font-size: 13px; color: var(--text-secondary, #94a3b8); margin-top: 2px; line-height: 1.4; }
+.notif-banner-btn {
+  flex-shrink: 0; padding: 8px 18px; border-radius: 10px; border: none;
+  background: var(--primary, #6366f1); color: #fff; font-size: 14px; font-weight: 600;
+  cursor: pointer; transition: background 0.15s, transform 0.1s;
+}
+.notif-banner-btn:hover { background: var(--primary-dark, #4f46e5); }
+.notif-banner-btn:active { transform: scale(0.95); }
+.notif-banner-dismiss {
+  flex-shrink: 0; background: none; border: none; cursor: pointer; padding: 4px;
+  color: var(--text-secondary, #94a3b8); display: flex; align-items: center;
+  border-radius: 8px; transition: background 0.15s;
+}
+.notif-banner-dismiss:hover { background: rgba(255,255,255,0.08); }
+.notif-banner-dismiss svg { width: 20px; height: 20px; }
+
 /* ===== Call UI ===== */
 .call-overlay {
   position: fixed; inset: 0; z-index: 300; display: flex;

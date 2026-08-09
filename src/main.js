@@ -5,7 +5,7 @@ import { loadChatList, subscribeToMessages, sendMessage, renderChatView, renderC
 import { rtdb, ref, onValue } from './firebase.js';
 import { renderGamesView, attachGamesEvents } from './games.js';
 import { auth, signOut, onAuthStateChanged, updateProfile, db, doc, setDoc } from './firebase.js';
-import { initPushNotifications, subscribeUserToPush, unsubscribeUserFromPush, setCallNotificationHandler } from './push.js';
+import { initPushNotifications, subscribeUserToPush, unsubscribeUserFromPush, setCallNotificationHandler, ensureNotificationPermission, getNotificationPermission } from './push.js';
 import { initWebSocket, closeWebSocket, startCall, acceptCall, rejectCall, cancelCall, endCall, setOnIncomingCall, setOnCallEnded, toggleMute, toggleCamera, getCallState, initIncomingCallFromPush } from './call.js';
 
 let currentUser = null;
@@ -86,7 +86,13 @@ function enterApp(user) {
   initWebSocket(user.email);
   setOnIncomingCall(showIncomingCallDialog);
   setOnCallEnded(handleCallEnded);
-  initPushNotifications().then(() => subscribeUserToPush(user.email));
+  initPushNotifications().then(() => {
+    if (getNotificationPermission() === 'granted') {
+      subscribeUserToPush(user.email);
+    } else {
+      showNotificationPrompt();
+    }
+  });
   initCrypto().catch(() => {});
   const saved = localStorage.getItem('talk_device');
   if (saved) {
@@ -537,6 +543,42 @@ function handleCallNotification(msg) {
       showIncomingCallDialog({ from: msg.from, fromName: msg.fromName || msg.from, callType: msg.callType || 'audio' });
     }
   }
+}
+
+function showNotificationPrompt() {
+  const existing = document.getElementById('notif-prompt-banner');
+  if (existing) existing.remove();
+  const banner = document.createElement('div');
+  banner.id = 'notif-prompt-banner';
+  banner.className = 'notif-banner';
+  banner.innerHTML = `
+    <div class="notif-banner-content">
+      <div class="notif-banner-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+      </div>
+      <div class="notif-banner-text">
+        <div class="notif-banner-title">Enable notifications</div>
+        <div class="notif-banner-desc">Get notified about incoming calls and messages even when the app is in the background.</div>
+      </div>
+      <button class="notif-banner-btn" id="notif-enable-btn">Allow</button>
+      <button class="notif-banner-dismiss" id="notif-dismiss-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>`;
+  document.body.appendChild(banner);
+
+  document.getElementById('notif-enable-btn').addEventListener('click', async () => {
+    const result = await ensureNotificationPermission();
+    if (result === 'granted') {
+      await subscribeUserToPush(currentUser.email);
+      banner.remove();
+    } else if (result === 'denied') {
+      banner.querySelector('.notif-banner-desc').textContent = 'Notifications are blocked. You can enable them later in your browser settings.';
+      document.getElementById('notif-enable-btn').textContent = 'Close';
+      document.getElementById('notif-enable-btn').onclick = () => banner.remove();
+    }
+  });
+  document.getElementById('notif-dismiss-btn').addEventListener('click', () => banner.remove());
 }
 
 function showIncomingCallDialog(call) {

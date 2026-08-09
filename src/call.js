@@ -19,6 +19,8 @@ let remoteStream = null;
 let callState = 'idle';
 let currentCall = null;
 let iceCandidateBuffer = [];
+let callTimeoutTimer = null;
+const CALL_TIMEOUT_MS = 45000;
 
 export function getCallState() { return callState; }
 export function getCurrentCall() { return currentCall; }
@@ -93,24 +95,28 @@ function handleWsMessage(msg) {
       break;
     case 'call-accept':
       if (callState === 'calling' && currentCall) {
+        if (callTimeoutTimer) { clearTimeout(callTimeoutTimer); callTimeoutTimer = null; }
         callState = 'connected';
         startWebRTC(currentCall.callType === 'video', true);
       }
       break;
     case 'call-reject':
       if (callState !== 'idle') {
+        if (callTimeoutTimer) { clearTimeout(callTimeoutTimer); callTimeoutTimer = null; }
         cleanupCall();
         if (onCallEndedCb) onCallEndedCb('rejected');
       }
       break;
     case 'call-cancel':
       if (callState !== 'idle') {
+        if (callTimeoutTimer) { clearTimeout(callTimeoutTimer); callTimeoutTimer = null; }
         cleanupCall();
         if (onCallEndedCb) onCallEndedCb('cancelled');
       }
       break;
     case 'call-end':
       if (callState !== 'idle') {
+        if (callTimeoutTimer) { clearTimeout(callTimeoutTimer); callTimeoutTimer = null; }
         cleanupCall();
         if (onCallEndedCb) onCallEndedCb('ended');
       }
@@ -156,31 +162,48 @@ export async function startCall(toEmail, callType) {
   callState = 'calling';
   currentCall = { from: userEmail, to: toEmail, callType, isCaller: true };
 
-  try {
-    const response = await fetch('/api/call/initiate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        fromEmail: userEmail,
-        fromName: userEmail,
-        toEmail,
-        callType
-      })
-    });
-    const result = await response.json();
-    if (!result.success) {
+  const sent = wsSend({
+    type: 'call-invite',
+    to: toEmail,
+    callType: callType || 'audio'
+  });
+
+  if (!sent) {
+    try {
+      const response = await fetch('/api/call/initiate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fromEmail: userEmail,
+          fromName: userEmail,
+          toEmail,
+          callType
+        })
+      });
+      const result = await response.json();
+      if (!result.success) {
+        cleanupCall();
+        return { success: false, error: 'Recipient not found' };
+      }
+    } catch (err) {
       cleanupCall();
-      return { success: false, error: 'Recipient not found' };
+      return { success: false, error: 'Call failed' };
     }
-    return { success: true };
-  } catch (err) {
-    cleanupCall();
-    return { success: false, error: 'Call failed' };
   }
+
+  callTimeoutTimer = setTimeout(() => {
+    if (callState === 'calling') {
+      cancelCall();
+      if (onCallEndedCb) onCallEndedCb('timeout');
+    }
+  }, CALL_TIMEOUT_MS);
+
+  return { success: true };
 }
 
 export function acceptCall() {
   if (!currentCall || callState !== 'receiving') return;
+  if (callTimeoutTimer) { clearTimeout(callTimeoutTimer); callTimeoutTimer = null; }
   callState = 'connected';
   wsSend({ type: 'call-accept', to: currentCall.from });
   startWebRTC(currentCall.callType === 'video', false);
@@ -188,18 +211,21 @@ export function acceptCall() {
 
 export function rejectCall() {
   if (!currentCall) return;
+  if (callTimeoutTimer) { clearTimeout(callTimeoutTimer); callTimeoutTimer = null; }
   wsSend({ type: 'call-reject', to: currentCall.isCaller ? currentCall.to : currentCall.from });
   cleanupCall();
 }
 
 export function cancelCall() {
   if (!currentCall) return;
+  if (callTimeoutTimer) { clearTimeout(callTimeoutTimer); callTimeoutTimer = null; }
   wsSend({ type: 'call-cancel', to: currentCall.isCaller ? currentCall.to : currentCall.from });
   cleanupCall();
 }
 
 export function endCall() {
   if (!currentCall) return;
+  if (callTimeoutTimer) { clearTimeout(callTimeoutTimer); callTimeoutTimer = null; }
   wsSend({ type: 'call-end', to: currentCall.isCaller ? currentCall.to : currentCall.from });
   cleanupCall();
 }
@@ -346,6 +372,7 @@ function attachRemoteStream() {
 }
 
 function cleanupCall() {
+  if (callTimeoutTimer) { clearTimeout(callTimeoutTimer); callTimeoutTimer = null; }
   if (localStream) {
     for (const track of localStream.getTracks()) {
       try { track.stop(); } catch {}
