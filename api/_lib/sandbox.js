@@ -11,7 +11,7 @@ export async function startDesktop(box,p){
  'chmod 700 "$XDG_RUNTIME_DIR"',
  'test -x /opt/private-linux/start-desktop.sh || { echo "Desktop startup script is missing"; exit 1; }',
  '/opt/private-linux/start-desktop.sh',
- 'if ! pgrep -x dbus-daemon >/dev/null 2>&1; then dbus-daemon --session --fork --address=unix:path=/tmp/cloud-linux-dbus; fi',
+ 'if [[ ! -S /tmp/cloud-linux-dbus ]]; then rm -f /tmp/cloud-linux-dbus; dbus-daemon --session --fork --address=unix:path=/tmp/cloud-linux-dbus; fi',
  'export DBUS_SESSION_BUS_ADDRESS=unix:path=/tmp/cloud-linux-dbus',
  'export GLYCIN_LOADERS_ALLOW_UNSANDBOXED=1',
  'pgrep -x openbox >/dev/null 2>&1 || (nohup openbox --replace >/tmp/openbox.log 2>&1 &)',
