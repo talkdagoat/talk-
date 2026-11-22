@@ -1,9 +1,9 @@
 import {Sandbox,Drive} from '@vercel/sandbox';
-import {sandboxName,driveName} from './auth.js';
+import {sandboxName,driveName,vncToken} from './auth.js';
 const SIZE=1024*1024*1024;
 export async function getUserSandbox(p){const snap=process.env.LINUX_BASE_SNAPSHOT_ID;if(!snap)throw new Error('Linux base snapshot is not configured');const drive=await Drive.getOrCreate({name:driveName(p),region:'bom1',maxSize:SIZE});const box=await Sandbox.getOrCreate({name:sandboxName(p),source:{type:'snapshot',snapshotId:snap},ports:[6080],region:'bom1',persistent:false,resources:{vcpus:2},timeout:45*60*1000,networkPolicy:'allow-all',mounts:{'/mnt/cloud-user-data':drive}});return{box,drive}}
 export async function startDesktop(box,p){
- const token=createDesktopToken(p);
+ const token=vncToken(p);
  const lines=[
  'set -Eeuo pipefail',
  'export HOME=/home/ubuntu DISPLAY=:1 XDG_RUNTIME_DIR=/tmp/runtime-ubuntu',
@@ -27,4 +27,3 @@ export async function startDesktop(box,p){
  const r=await box.runCommand({cmd:'bash',args:['-lc',lines.join('\\n')],env:{HOME:'/home/ubuntu',DISPLAY:':1',NOVNC_TOKEN:token},timeoutMs:30000});
  if(r.exitCode!==0)throw new Error('Linux desktop failed to start its window manager or browser stream. Try launching again.');
 }
-function createDesktopToken(p){return createHmac('sha256',process.env.LINUX_MASTER_SECRET).update('novnc:'+p.id).digest('hex')}
