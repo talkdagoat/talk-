@@ -24,6 +24,6 @@ export async function startDesktop(box,p){
  'pgrep -x lxpanel >/dev/null',
  'curl -fsS http://127.0.0.1:6080/vnc.html >/dev/null'
  ];
- const r=await box.runCommand({cmd:'bash',args:['-lc',lines.join('\\n')],env:{HOME:'/home/ubuntu',DISPLAY:':1',NOVNC_TOKEN:token},timeoutMs:30000});
+ const r=await box.runCommand({cmd:'bash',args:['-lc',lines.join('\n')],env:{HOME:'/home/ubuntu',DISPLAY:':1',NOVNC_TOKEN:token},timeoutMs:30000});
  if(r.exitCode!==0)throw new Error('Linux desktop failed to start its window manager or browser stream. Try launching again.');
 }
